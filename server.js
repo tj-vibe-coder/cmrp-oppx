@@ -33,7 +33,7 @@ app.set('trust proxy', true);
 // CORS configuration - more restrictive in production
 const getAllowedOrigins = () => {
   if (process.env.NODE_ENV === 'production') {
-    const origins = ['https://cmrp-opps.onrender.com'];
+    const origins = ['https://cmrp-oppx.onrender.com'];
     if (process.env.FRONTEND_URL) {
       origins.push(process.env.FRONTEND_URL);
     }
