@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Encoded Date Generation</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            max-width: 800px; 
+            margin: 0 auto; 
+            padding: 20px; 
+        }
+        .test-section { 
+            background: #f5f5f5; 
+            padding: 20px; 
+            margin: 20px 0; 
+            border-radius: 8px; 
+        }
+        .result { 
+            padding: 10px; 
+            margin: 10px 0; 
+            border-radius: 4px; 
+        }
+        .success { background-color: #d4edda; color: #155724; }
+        .error { background-color: #f8d7da; color: #721c24; }
+        .info { background-color: #d1ecf1; color: #0c5460; }
+        button { 
+            background: #007bff; 
+            color: white; 
+            border: none; 
+            padding: 10px 20px; 
+            border-radius: 4px; 
+            cursor: pointer; 
+            margin: 5px; 
+        }
+        button:hover { background: #0056b3; }
+        pre { 
+            background: #1e1e1e; 
+            color: #d4d4d4; 
+            padding: 15px; 
+            border-radius: 6px; 
+            font-family: monospace; 
+            overflow-x: auto; 
+        }
+        .console-output {
+            height: 300px;
+            overflow-y: auto;
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 15px;
+            border-radius: 6px;
+            font-family: monospace;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🗓️ Encoded Date Generation Test</h1>
+    
+    <div class="test-section">
+        <h2>Test Status</h2>
+        <div id="test-status" class="result info">
+            Ready to test automatic encoded_date generation for new opportunities.
+        </div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test Instructions</h2>
+        <ol>
+            <li>Click the "Test Encoded Date Logic" button to verify the date generation function</li>
+            <li>Click "Open Main App" to access the application</li>
+            <li>Try creating a new opportunity and check if encoded_date is automatically set</li>
+            <li>Check the console output for debug logs showing the auto-generated date</li>
+        </ol>
+        <button onclick="testEncodedDateLogic()">Test Encoded Date Logic</button>
+        <button onclick="openMainApp()">Open Main App</button>
+        <button onclick="clearConsole()">Clear Console</button>
+    </div>
+    
+    <div class="test-section">
+        <h2>Current Date Information</h2>
+        <div id="date-info"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Console Output</h2>
+        <div id="console-output" class="console-output">
+            Console ready...
+        </div>
+    </div>
+
+    <script>
+        // Console logging function
+        function log(message, type = 'info') {
+            const consoleDiv = document.getElementById('console-output');
+            const timestamp = new Date().toLocaleTimeString();
+            
+            let color = '#d4d4d4';
+            switch(type) {
+                case 'error': color = '#f85149'; break;
+                case 'success': color = '#3fb950'; break;
+                case 'warn': color = '#f2cc60'; break;
+            }
+            
+            const logEntry = document.createElement('div');
+            logEntry.style.color = color;
+            logEntry.innerHTML = `[${timestamp}] ${message}`;
+            consoleDiv.appendChild(logEntry);
+            consoleDiv.scrollTop = consoleDiv.scrollHeight;
+        }
+        
+        function clearConsole() {
+            document.getElementById('console-output').innerHTML = 'Console cleared...';
+        }
+        
+        function testEncodedDateLogic() {
+            log('=== TESTING ENCODED DATE GENERATION LOGIC ===', 'info');
+            
+            // Simulate the logic from app.js
+            const currentDate = new Date();
+            const encodedDate = currentDate.toISOString().split('T')[0];
+            
+            log(`Current Date Object: ${currentDate}`, 'info');
+            log(`Generated encoded_date: ${encodedDate}`, 'success');
+            log(`Format: YYYY-MM-DD (ISO format)`, 'info');
+            
+            // Verify format
+            const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+            if (dateRegex.test(encodedDate)) {
+                log('✅ Date format validation PASSED', 'success');
+                document.getElementById('test-status').innerHTML = '✅ Encoded date generation logic is working correctly!';
+                document.getElementById('test-status').className = 'result success';
+            } else {
+                log('❌ Date format validation FAILED', 'error');
+                document.getElementById('test-status').innerHTML = '❌ Date format validation failed!';
+                document.getElementById('test-status').className = 'result error';
+            }
+            
+            // Test expected vs actual
+            const today = new Date();
+            const expectedDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+            
+            log(`Expected date: ${expectedDate}`, 'info');
+            log(`Generated date: ${encodedDate}`, 'info');
+            
+            if (encodedDate === expectedDate) {
+                log('✅ Date values match perfectly!', 'success');
+            } else {
+                log('⚠️ Date values differ - this might indicate timezone issues', 'warn');
+            }
+        }
+        
+        function openMainApp() {
+            log('Opening main application...', 'info');
+            window.open('http://localhost:3000', '_blank');
+        }
+        
+        // Initialize page
+        function init() {
+            const now = new Date();
+            const currentDateInfo = `
+                <p><strong>Current Date:</strong> ${now.toLocaleDateString()}</p>
+                <p><strong>Current Time:</strong> ${now.toLocaleTimeString()}</p>
+                <p><strong>ISO Format:</strong> ${now.toISOString()}</p>
+                <p><strong>Expected encoded_date:</strong> ${now.toISOString().split('T')[0]}</p>
+            `;
+            document.getElementById('date-info').innerHTML = currentDateInfo;
+            
+            log('Test page initialized', 'success');
+            log('Current date: ' + now.toISOString().split('T')[0], 'info');
+        }
+        
+        // Initialize when page loads
+        window.addEventListener('load', init);
+    </script>
+</body>
+</html>

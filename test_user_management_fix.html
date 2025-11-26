@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>User Management Fix Verification</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .test-section {
+            background: white;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .success { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .warning { background-color: #fff3cd; color: #856404; border: 1px solid #ffeaa7; }
+        .info { background-color: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+            font-weight: bold;
+        }
+        
+        pre {
+            background-color: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 4px;
+            padding: 15px;
+            overflow-x: auto;
+            font-size: 12px;
+        }
+        
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔧 User Management Fix Verification Test</h1>
+    <p>This page tests whether the user management table columns are now displaying data correctly after fixing the duplicate API endpoint issue.</p>
+
+    <div class="test-section">
+        <h2>🔐 Authentication Status</h2>
+        <div id="authStatus" class="status info">Checking authentication...</div>
+        <button onclick="testAuth()">Test Authentication</button>
+    </div>
+
+    <div class="test-section">
+        <h2>📊 API Endpoint Test</h2>
+        <div id="apiStatus" class="status info">Ready to test API</div>
+        <button onclick="testUsersAPI()" id="testApiBtn">Test /api/users Endpoint</button>
+        <div id="apiResponse"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>📋 Field Mapping Verification</h2>
+        <div id="mappingStatus" class="status info">Will verify after API test</div>
+        <div id="fieldMapping"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>🏠 User Management Table Test</h2>
+        <div id="tableStatus" class="status info">Ready to test table rendering</div>
+        <button onclick="testTableRendering()" id="testTableBtn">Test Table Rendering</button>
+        <div id="tableTest"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>✅ Summary</h2>
+        <div id="summary" class="status info">Run tests to see summary</div>
+    </div>
+
+    <script>
+        let authToken = null;
+        let userData = null;
+
+        // Check if user is logged in
+        async function testAuth() {
+            const authDiv = document.getElementById('authStatus');
+            authDiv.textContent = 'Testing authentication...';
+            authDiv.className = 'status info';
+
+            const token = localStorage.getItem('token');
+            if (!token) {
+                authDiv.textContent = '❌ No authentication token found. Please log in first.';
+                authDiv.className = 'status error';
+                return false;
+            }
+
+            try {
+                // Test the token by making a request to the users API
+                const response = await fetch('/api/users', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (response.ok) {
+                    authToken = token;
+                    authDiv.textContent = '✅ Authentication successful - Admin access confirmed';
+                    authDiv.className = 'status success';
+                    document.getElementById('testApiBtn').disabled = false;
+                    document.getElementById('testTableBtn').disabled = false;
+                    return true;
+                } else if (response.status === 403) {
+                    authDiv.textContent = '❌ Access denied - Admin privileges required';
+                    authDiv.className = 'status error';
+                    return false;
+                } else {
+                    authDiv.textContent = `❌ Authentication failed: ${response.status} ${response.statusText}`;
+                    authDiv.className = 'status error';
+                    return false;
+                }
+            } catch (error) {
+                authDiv.textContent = `❌ Authentication error: ${error.message}`;
+                authDiv.className = 'status error';
+                return false;
+            }
+        }
+
+        // Test the users API endpoint
+        async function testUsersAPI() {
+            const statusDiv = document.getElementById('apiStatus');
+            const responseDiv = document.getElementById('apiResponse');
+            
+            if (!authToken) {
+                statusDiv.textContent = '❌ Please authenticate first';
+                statusDiv.className = 'status error';
+                return;
+            }
+
+            statusDiv.textContent = 'Testing /api/users endpoint...';
+            statusDiv.className = 'status info';
+
+            try {
+                const response = await fetch('/api/users', {
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const users = await response.json();
+                userData = users;
+
+                statusDiv.textContent = `✅ API test successful - Retrieved ${users.length} users`;
+                statusDiv.className = 'status success';
+
+                // Display the response
+                responseDiv.innerHTML = `
+                    <h3>API Response:</h3>
+                    <pre>${JSON.stringify(users, null, 2)}</pre>
+                `;
+
+                // Test field mapping
+                testFieldMapping(users);
+
+            } catch (error) {
+                statusDiv.textContent = `❌ API test failed: ${error.message}`;
+                statusDiv.className = 'status error';
+                responseDiv.innerHTML = `<p class="error">Error: ${error.message}</p>`;
+            }
+        }
+
+        // Verify that the API returns properly mapped fields
+        function testFieldMapping(users) {
+            const statusDiv = document.getElementById('mappingStatus');
+            const mappingDiv = document.getElementById('fieldMapping');
+
+            if (!users || users.length === 0) {
+                statusDiv.textContent = '⚠️ No users returned to test field mapping';
+                statusDiv.className = 'status warning';
+                return;
+            }
+
+            const sampleUser = users[0];
+            const expectedFields = ['_id', 'username', 'email', 'role', 'accountType', 'is_verified'];
+            const actualFields = Object.keys(sampleUser);
+
+            let mappingResults = [];
+            let allFieldsPresent = true;
+
+            expectedFields.forEach(field => {
+                const present = actualFields.includes(field);
+                mappingResults.push({
+                    field: field,
+                    present: present,
+                    value: present ? sampleUser[field] : 'MISSING'
+                });
+                if (!present) allFieldsPresent = false;
+            });
+
+            // Check for unexpected fields (should be raw database fields)
+            const unexpectedFields = actualFields.filter(field => !expectedFields.includes(field));
+
+            if (allFieldsPresent && unexpectedFields.length === 0) {
+                statusDiv.textContent = '✅ Field mapping verification successful - All expected fields present';
+                statusDiv.className = 'status success';
+            } else {
+                statusDiv.textContent = '❌ Field mapping issues detected';
+                statusDiv.className = 'status error';
+            }
+
+            // Display mapping results
+            let tableHTML = `
+                <h3>Field Mapping Results:</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Expected Field</th>
+                            <th>Present</th>
+                            <th>Sample Value</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            mappingResults.forEach(result => {
+                const statusIcon = result.present ? '✅' : '❌';
+                const valueDisplay = typeof result.value === 'object' ? JSON.stringify(result.value) : result.value;
+                tableHTML += `
+                    <tr>
+                        <td><strong>${result.field}</strong></td>
+                        <td>${statusIcon} ${result.present ? 'Present' : 'Missing'}</td>
+                        <td>${valueDisplay}</td>
+                    </tr>
+                `;
+            });
+
+            tableHTML += '</tbody></table>';
+
+            if (unexpectedFields.length > 0) {
+                tableHTML += `
+                    <h4>⚠️ Unexpected Fields Found (may indicate raw database fields):</h4>
+                    <ul>
+                        ${unexpectedFields.map(field => `<li><strong>${field}</strong>: ${JSON.stringify(sampleUser[field])}</li>`).join('')}
+                    </ul>
+                `;
+            }
+
+            mappingDiv.innerHTML = tableHTML;
+        }
+
+        // Test table rendering functionality
+        async function testTableRendering() {
+            const statusDiv = document.getElementById('tableStatus');
+            const testDiv = document.getElementById('tableTest');
+
+            if (!userData) {
+                statusDiv.textContent = '❌ Please run API test first to get user data';
+                statusDiv.className = 'status error';
+                return;
+            }
+
+            statusDiv.textContent = 'Testing table rendering...';
+            statusDiv.className = 'status info';
+
+            try {
+                // Simulate the renderUsersTable function from user_management.html
+                let tableHTML = `
+                    <h3>Simulated User Management Table:</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Username</th>
+                                <th>Email</th>
+                                <th>Roles</th>
+                                <th>Account Type</th>
+                                <th>Verified</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+
+                userData.forEach(user => {
+                    const roles = Array.isArray(user.role) ? user.role.join(', ') : (user.role || 'No roles');
+                    
+                    tableHTML += `
+                        <tr>
+                            <td>${user.username || 'N/A'}</td>
+                            <td>${user.email || 'N/A'}</td>
+                            <td>${roles}</td>
+                            <td>${user.accountType || 'N/A'}</td>
+                            <td>${user.is_verified ? '✅ Yes' : '❌ No'}</td>
+                        </tr>
+                    `;
+                });
+
+                tableHTML += '</tbody></table>';
+
+                // Check if any critical fields are missing data
+                const missingData = userData.some(user => 
+                    !user.username || !user.email || !user.accountType
+                );
+
+                if (missingData) {
+                    statusDiv.textContent = '⚠️ Table rendering test shows some missing data';
+                    statusDiv.className = 'status warning';
+                } else {
+                    statusDiv.textContent = '✅ Table rendering test successful - All columns showing data';
+                    statusDiv.className = 'status success';
+                }
+
+                testDiv.innerHTML = tableHTML;
+                updateSummary();
+
+            } catch (error) {
+                statusDiv.textContent = `❌ Table rendering test failed: ${error.message}`;
+                statusDiv.className = 'status error';
+                testDiv.innerHTML = `<p class="error">Error: ${error.message}</p>`;
+            }
+        }
+
+        // Update the summary section
+        function updateSummary() {
+            const summaryDiv = document.getElementById('summary');
+            const authStatus = document.getElementById('authStatus').className.includes('success');
+            const apiStatus = document.getElementById('apiStatus').className.includes('success');
+            const mappingStatus = document.getElementById('mappingStatus').className.includes('success');
+            const tableStatus = document.getElementById('tableStatus').className.includes('success');
+
+            const passedTests = [authStatus, apiStatus, mappingStatus, tableStatus].filter(Boolean).length;
+            const totalTests = 4;
+
+            if (passedTests === totalTests) {
+                summaryDiv.textContent = `🎉 All tests passed (${passedTests}/${totalTests}) - User management fix is successful!`;
+                summaryDiv.className = 'status success';
+            } else if (passedTests > 0) {
+                summaryDiv.textContent = `⚠️ Partial success (${passedTests}/${totalTests} tests passed) - Some issues remain`;
+                summaryDiv.className = 'status warning';
+            } else {
+                summaryDiv.textContent = `❌ Tests failed - Issues still present`;
+                summaryDiv.className = 'status error';
+            }
+        }
+
+        // Auto-start authentication test
+        window.onload = function() {
+            setTimeout(testAuth, 1000);
+        };
+    </script>
+</body>
+</html>

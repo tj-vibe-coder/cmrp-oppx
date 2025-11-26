@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Test - CMRP User Management</title>
+    <script src="config.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
+        .success { background-color: #d4edda; border-color: #c3e6cb; }
+        .error { background-color: #f8d7da; border-color: #f5c6cb; }
+        button { margin: 5px; padding: 8px 15px; }
+        pre { background: #f5f5f5; padding: 10px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>CMRP User Management API Test</h1>
+    
+    <div class="test-section">
+        <h3>🌙 Dark Mode Default Test</h3>
+        <p>Page should load with dark theme by default (check body classes and theme toggle)</p>
+        <div id="darkModeStatus"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>🔗 API URL Configuration Test</h3>
+        <button onclick="testApiConfig()">Test getApiUrl Function</button>
+        <div id="apiConfigResult"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>🛡️ Server Endpoints Test</h3>
+        <button onclick="testUserEndpoint()">Test /api/users (No Auth)</button>
+        <button onclick="testLoginEndpoint()">Test /api/login</button>
+        <button onclick="testRegisterEndpoint()">Test /api/register</button>
+        <div id="endpointResults"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>📊 Test Results Summary</h3>
+        <div id="testSummary"></div>
+    </div>
+
+    <script>
+        // Check dark mode default
+        document.addEventListener('DOMContentLoaded', function() {
+            const isDarkMode = document.body.classList.contains('dark-mode') || 
+                             document.documentElement.classList.contains('dark-mode') ||
+                             localStorage.getItem('theme') === 'dark';
+            
+            const darkModeStatus = document.getElementById('darkModeStatus');
+            if (isDarkMode) {
+                darkModeStatus.innerHTML = '<span style="color: green;">✅ Dark mode is active by default</span>';
+            } else {
+                darkModeStatus.innerHTML = '<span style="color: orange;">⚠️ Dark mode may not be active (check manually)</span>';
+            }
+        });
+
+        function testApiConfig() {
+            const result = document.getElementById('apiConfigResult');
+            try {
+                if (typeof getApiUrl === 'function') {
+                    const testUrl = getApiUrl('/api/users');
+                    result.innerHTML = `
+                        <div style="color: green;">✅ getApiUrl function is available</div>
+                        <div>Test URL: <code>${testUrl}</code></div>
+                    `;
+                } else {
+                    result.innerHTML = '<div style="color: red;">❌ getApiUrl function not found</div>';
+                }
+            } catch (error) {
+                result.innerHTML = `<div style="color: red;">❌ Error: ${error.message}</div>`;
+            }
+        }
+
+        async function testUserEndpoint() {
+            const result = document.getElementById('endpointResults');
+            try {
+                const response = await fetch(getApiUrl('/api/users'));
+                const data = await response.json();
+                result.innerHTML += `
+                    <div>
+                        <strong>/api/users:</strong> 
+                        Status ${response.status} - ${response.ok ? '✅' : '❌'}
+                        <pre>${JSON.stringify(data, null, 2)}</pre>
+                    </div>
+                `;
+            } catch (error) {
+                result.innerHTML += `<div style="color: red;">/api/users Error: ${error.message}</div>`;
+            }
+        }
+
+        async function testLoginEndpoint() {
+            const result = document.getElementById('endpointResults');
+            try {
+                const response = await fetch(getApiUrl('/api/login'), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email: 'test@example.com', password: 'test' })
+                });
+                const data = await response.json();
+                result.innerHTML += `
+                    <div>
+                        <strong>/api/login:</strong> 
+                        Status ${response.status} - ${response.ok ? '✅' : '❌'}
+                        <pre>${JSON.stringify(data, null, 2)}</pre>
+                    </div>
+                `;
+            } catch (error) {
+                result.innerHTML += `<div style="color: red;">/api/login Error: ${error.message}</div>`;
+            }
+        }
+
+        async function testRegisterEndpoint() {
+            const result = document.getElementById('endpointResults');
+            try {
+                const response = await fetch(getApiUrl('/api/register'), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        email: 'test@example.com', 
+                        password: 'test123',
+                        name: 'Test User',
+                        roles: ['user']
+                    })
+                });
+                const data = await response.json();
+                result.innerHTML += `
+                    <div>
+                        <strong>/api/register:</strong> 
+                        Status ${response.status} - ${response.ok ? '✅' : '❌'}
+                        <pre>${JSON.stringify(data, null, 2)}</pre>
+                    </div>
+                `;
+            } catch (error) {
+                result.innerHTML += `<div style="color: red;">/api/register Error: ${error.message}</div>`;
+            }
+        }
+    </script>
+</body>
+</html>

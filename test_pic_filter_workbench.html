@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PIC Filter Test - Proposal Workbench</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <script src="config.js"></script>
+</head>
+<body class="bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-gray-200 min-h-screen p-8">
+    <div class="max-w-4xl mx-auto">
+        <h1 class="text-3xl font-bold mb-6">PIC Filter Test - Proposal Workbench</h1>
+        
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 mb-6">
+            <h2 class="text-xl font-semibold mb-4">Test Results</h2>
+            <div id="testResults" class="space-y-2">
+                <p class="text-gray-600 dark:text-gray-400">Running tests...</p>
+            </div>
+        </div>
+        
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 mb-6">
+            <h2 class="text-xl font-semibold mb-4">PIC Filter Options</h2>
+            <div id="picOptions" class="space-y-2">
+                <p class="text-gray-600 dark:text-gray-400">Loading PIC options...</p>
+            </div>
+        </div>
+        
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+            <h2 class="text-xl font-semibold mb-4">Filtered Proposals</h2>
+            <div class="mb-4">
+                <label for="testPicFilter" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Select PIC to test filtering:</label>
+                <select id="testPicFilter" class="block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                    <option value="">All PICs</option>
+                </select>
+            </div>
+            <div id="proposalResults" class="space-y-2">
+                <p class="text-gray-600 dark:text-gray-400">Select a PIC to see filtered proposals...</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // API Configuration
+        function getApiUrl(endpoint) {
+            const baseUrl = window.APP_CONFIG?.API_BASE_URL || '';
+            return `${baseUrl}${endpoint}`;
+        }
+
+        async function fetchWithAuth(url, options = {}) {
+            const token = localStorage.getItem('authToken');
+            const headers = {
+                'Content-Type': 'application/json',
+                ...options.headers,
+            };
+
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
+
+            const response = await fetch(url, { ...options, headers });
+
+            if (response.status === 401) {
+                localStorage.removeItem('authToken');
+                window.location.href = 'login.html';
+                throw new Error('Unauthorized');
+            }
+
+            return response;
+        }
+
+        // Test Functions
+        async function testPicFilterEndpoint() {
+            const testResults = document.getElementById('testResults');
+            const results = [];
+
+            try {
+                // Test 1: Check if PIC endpoint is accessible
+                const response = await fetchWithAuth(getApiUrl('/api/proposals/pics'));
+                if (response.ok) {
+                    const pics = await response.json();
+                    results.push(`✅ PIC endpoint accessible - Found ${pics.length} PICs`);
+                    
+                    // Populate test dropdown
+                    const testSelect = document.getElementById('testPicFilter');
+                    testSelect.innerHTML = '<option value="">All PICs</option>';
+                    pics.forEach(pic => {
+                        const option = document.createElement('option');
+                        option.value = pic.pic;
+                        option.textContent = `${pic.pic} (${pic.count})`;
+                        testSelect.appendChild(option);
+                    });
+                    
+                    // Display PIC options
+                    const picOptions = document.getElementById('picOptions');
+                    picOptions.innerHTML = pics.map(pic => 
+                        `<div class="flex justify-between">
+                            <span>${pic.pic}</span>
+                            <span class="text-gray-500">${pic.count} proposals</span>
+                        </div>`
+                    ).join('');
+                    
+                } else if (response.status === 403) {
+                    results.push(`⚠️ PIC endpoint not accessible (403) - User may not have admin/manager role`);
+                } else {
+                    results.push(`❌ PIC endpoint failed with status: ${response.status}`);
+                }
+
+                // Test 2: Check if workbench endpoint works without filter
+                const workbenchResponse = await fetchWithAuth(getApiUrl('/api/proposals/workbench'));
+                if (workbenchResponse.ok) {
+                    const proposals = await workbenchResponse.json();
+                    results.push(`✅ Workbench endpoint accessible - Found ${proposals.length} proposals`);
+                } else {
+                    results.push(`❌ Workbench endpoint failed with status: ${workbenchResponse.status}`);
+                }
+
+                // Test 3: Check if workbench endpoint works with PIC filter
+                const testPic = 'RJR'; // Test with a known PIC
+                const filteredResponse = await fetchWithAuth(getApiUrl(`/api/proposals/workbench?pic=${encodeURIComponent(testPic)}`));
+                if (filteredResponse.ok) {
+                    const filteredProposals = await filteredResponse.json();
+                    results.push(`✅ Workbench PIC filter works - Found ${filteredProposals.length} proposals for ${testPic}`);
+                } else {
+                    results.push(`❌ Workbench PIC filter failed with status: ${filteredResponse.status}`);
+                }
+
+            } catch (error) {
+                results.push(`❌ Test failed with error: ${error.message}`);
+            }
+
+            testResults.innerHTML = results.map(result => `<p>${result}</p>`).join('');
+        }
+
+        // Event Listeners
+        document.getElementById('testPicFilter').addEventListener('change', async (e) => {
+            const selectedPic = e.target.value;
+            const proposalResults = document.getElementById('proposalResults');
+            
+            try {
+                let url = getApiUrl('/api/proposals/workbench');
+                if (selectedPic) {
+                    url += `?pic=${encodeURIComponent(selectedPic)}`;
+                }
+                
+                const response = await fetchWithAuth(url);
+                if (response.ok) {
+                    const proposals = await response.json();
+                    
+                    if (proposals.length === 0) {
+                        proposalResults.innerHTML = '<p class="text-gray-500">No proposals found for the selected PIC.</p>';
+                    } else {
+                        proposalResults.innerHTML = `
+                            <h3 class="font-semibold mb-2">Found ${proposals.length} proposals${selectedPic ? ` for ${selectedPic}` : ''}</h3>
+                            <div class="space-y-2">
+                                ${proposals.slice(0, 10).map(proposal => `
+                                    <div class="border border-gray-200 dark:border-gray-700 rounded p-3">
+                                        <div class="font-medium">${proposal.project_name}</div>
+                                        <div class="text-sm text-gray-600 dark:text-gray-400">
+                                            Client: ${proposal.client_name} | 
+                                            PIC: ${proposal.pic} | 
+                                            Status: ${proposal.status}
+                                        </div>
+                                    </div>
+                                `).join('')}
+                                ${proposals.length > 10 ? `<p class="text-gray-500">... and ${proposals.length - 10} more</p>` : ''}
+                            </div>
+                        `;
+                    }
+                } else {
+                    proposalResults.innerHTML = `<p class="text-red-500">Failed to load proposals: ${response.status}</p>`;
+                }
+            } catch (error) {
+                proposalResults.innerHTML = `<p class="text-red-500">Error: ${error.message}</p>`;
+            }
+        });
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            // Check if user is logged in
+            const token = localStorage.getItem('authToken');
+            if (!token) {
+                document.getElementById('testResults').innerHTML = '<p class="text-red-500">❌ Not logged in. Please login first.</p>';
+                return;
+            }
+
+            testPicFilterEndpoint();
+        });
+    </script>
+</body>
+</html> 

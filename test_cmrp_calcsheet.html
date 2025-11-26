@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CMRP Calcsheet Test</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            padding: 20px; 
+            max-width: 1000px; 
+            margin: 0 auto; 
+        }
+        .test-section { 
+            margin: 20px 0; 
+            padding: 20px; 
+            border: 1px solid #ddd; 
+            border-radius: 8px; 
+        }
+        .success { background-color: #d4edda; color: #155724; }
+        .error { background-color: #f8d7da; color: #721c24; }
+        .info { background-color: #d1ecf1; color: #0c5460; }
+        .warning { background-color: #fff3cd; color: #856404; }
+        .cmrp { background-color: #e7f3ff; color: #004085; border-color: #004085; }
+        input, button, select { margin: 5px; padding: 10px; }
+        button { background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        pre { background: #f8f9fa; padding: 10px; border-radius: 4px; overflow-x: auto; white-space: pre-wrap; }
+        .filename-example { 
+            font-family: monospace; 
+            background: #f8f9fa; 
+            padding: 8px; 
+            border-radius: 4px; 
+            border-left: 4px solid #007bff;
+            margin: 10px 0;
+        }
+        .breakdown { margin: 10px 0; }
+        .breakdown span { 
+            display: inline-block; 
+            margin: 2px 5px; 
+            padding: 2px 8px; 
+            border-radius: 3px; 
+            font-family: monospace;
+        }
+        .proposal-code { background: #fff3cd; color: #856404; }
+        .pcs { background: #d1ecf1; color: #0c5460; }
+        .revision { background: #d4edda; color: #155724; }
+        .project-name { background: #f8d7da; color: #721c24; }
+    </style>
+</head>
+<body>
+    <h1>🧮 CMRP Calcsheet Integration Test</h1>
+    
+    <div class="test-section cmrp">
+        <h3>📋 CMRP Calcsheet Format</h3>
+        <p>CMRP calcsheets follow a specific naming convention that the system can automatically parse:</p>
+        
+        <div class="filename-example">
+            CMRP25060304-PCS001-00 SLTEC Fortigate Renewal.xlsx
+        </div>
+        
+        <div class="breakdown">
+            <strong>Format breakdown:</strong><br>
+            <span class="proposal-code">CMRP25060304</span>
+            <span class="pcs">-PCS001-</span>
+            <span class="revision">00</span>
+            <span class="project-name">SLTEC Fortigate Renewal</span>
+        </div>
+        
+        <ul>
+            <li><strong>Proposal Code:</strong> Used to match opportunities in the database (project_code column)</li>
+            <li><strong>PCS001:</strong> Standard CMRP identifier</li>
+            <li><strong>Revision Number:</strong> Can be extracted automatically</li>
+            <li><strong>Project Name:</strong> Descriptive name for reference</li>
+            <li><strong>Password:</strong> Always <code>0601CMRP!</code> (pre-filled)</li>
+        </ul>
+    </div>
+
+    <div class="test-section">
+        <h3>1️⃣ Filename Parser Test</h3>
+        <p>Test the filename parsing logic with different CMRP calcsheet names:</p>
+        
+        <input type="text" 
+               id="testFilename" 
+               placeholder="Enter a CMRP calcsheet filename..."
+               value="CMRP25060304-PCS001-02 SLTEC Fortigate Renewal.xlsx"
+               style="width: 100%; max-width: 600px;">
+        <button onclick="testFilenameParser()">Parse Filename</button>
+        
+        <div id="parseResults"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>2️⃣ Database Matching Simulation</h3>
+        <p>Test how the system would match proposal codes to opportunities:</p>
+        
+        <input type="text" 
+               id="testProposalCode" 
+               placeholder="Enter proposal code to test..."
+               value="CMRP25060304">
+        <button onclick="testProposalCodeLookup()">Test Lookup</button>
+        
+        <div id="lookupResults"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>3️⃣ Full Integration Test</h3>
+        <p>Test the complete CMRP calcsheet upload workflow:</p>
+        
+        <div class="warning">
+            <strong>Prerequisites:</strong>
+            <ul>
+                <li>Ensure you're logged in to the main application</li>
+                <li>Have a CMRP calcsheet file ready (password: 0601CMRP!)</li>
+                <li>Verify the proposal code exists in your database</li>
+            </ul>
+        </div>
+        
+        <button onclick="openMainUploadModal()">Open Upload Modal in Main App</button>
+        <button onclick="testCMRPWorkflow()">Test CMRP Workflow</button>
+        
+        <div id="workflowResults"></div>
+    </div>
+
+    <div class="test-section info">
+        <h3>📝 Expected Calcsheet Structure</h3>
+        <p>Your CMRP calcsheet should contain data that can be mapped to these fields:</p>
+        <ul>
+            <li><strong>Proposal Code:</strong> Either in a column or extracted from filename</li>
+            <li><strong>Revision Number:</strong> Integer value (extracted from filename or data)</li>
+            <li><strong>Final Amount:</strong> Currency value (₱, $, with commas OK)</li>
+            <li><strong>Margin:</strong> Percentage value (% symbol OK)</li>
+        </ul>
+        
+        <p><em>The system will automatically handle currency formatting, percentage symbols, and match opportunities by proposal code.</em></p>
+    </div>
+
+    <script>
+        function testFilenameParser() {
+            const filename = document.getElementById('testFilename').value;
+            const resultsDiv = document.getElementById('parseResults');
+            
+            if (!filename) {
+                resultsDiv.innerHTML = '<div class="error">Please enter a filename to test.</div>';
+                return;
+            }
+            
+            // Remove extension
+            const nameWithoutExt = filename.replace(/\.(xlsx|xls)$/i, '');
+            
+            // CMRP pattern: [ProposalCode]-PCS001-[RevNum] [ProjectName]
+            const cmrpPattern = /^([A-Z0-9]+)-PCS001-(\d{2})\s+(.+)$/i;
+            const match = nameWithoutExt.match(cmrpPattern);
+            
+            if (match) {
+                const [, proposalCode, revisionNumber, projectName] = match;
+                
+                resultsDiv.innerHTML = `
+                    <div class="success">
+                        <h4>✅ Valid CMRP Calcsheet Format</h4>
+                        <div class="breakdown">
+                            <span class="proposal-code">Proposal Code: ${proposalCode}</span>
+                            <span class="revision">Revision: ${revisionNumber}</span>
+                            <span class="project-name">Project: ${projectName}</span>
+                        </div>
+                        <p><strong>What happens next:</strong></p>
+                        <ul>
+                            <li>System will look for opportunity with project_code = "${proposalCode}"</li>
+                            <li>Default password "0601CMRP!" will be used</li>
+                            <li>Revision ${revisionNumber} will be applied if found in data</li>
+                        </ul>
+                    </div>
+                `;
+            } else {
+                resultsDiv.innerHTML = `
+                    <div class="warning">
+                        <h4>⚠️ Non-Standard Format</h4>
+                        <p><strong>Filename:</strong> ${filename}</p>
+                        <p>This doesn't match the CMRP format: [Code]-PCS001-[Rev] [Name]</p>
+                        <p><strong>Expected format:</strong> CMRP25060304-PCS001-02 Project Name.xlsx</p>
+                        <p>The system will still work if your Excel file contains UID or Proposal Code columns.</p>
+                    </div>
+                `;
+            }
+        }
+        
+        async function testProposalCodeLookup() {
+            const proposalCode = document.getElementById('testProposalCode').value.trim();
+            const resultsDiv = document.getElementById('lookupResults');
+            
+            if (!proposalCode) {
+                resultsDiv.innerHTML = '<div class="error">Please enter a proposal code to test.</div>';
+                return;
+            }
+            
+            try {
+                const token = localStorage.getItem('authToken');
+                if (!token) {
+                    resultsDiv.innerHTML = '<div class="error">Not logged in. Please login to the main app first.</div>';
+                    return;
+                }
+                
+                // Test if we can find an opportunity with this proposal code
+                const response = await fetch('/api/opportunities', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Failed to fetch opportunities');
+                }
+                
+                const opportunities = await response.json();
+                const matches = opportunities.filter(opp => 
+                    opp.project_code && opp.project_code.toLowerCase() === proposalCode.toLowerCase()
+                );
+                
+                if (matches.length > 0) {
+                    const match = matches[0];
+                    resultsDiv.innerHTML = `
+                        <div class="success">
+                            <h4>✅ Proposal Code Found!</h4>
+                            <div><strong>UID:</strong> ${match.uid}</div>
+                            <div><strong>Project Name:</strong> ${match.project_name || 'N/A'}</div>
+                            <div><strong>Client:</strong> ${match.client || 'N/A'}</div>
+                            <div><strong>Current Revision:</strong> ${match.rev || 'N/A'}</div>
+                            <div><strong>Current Amount:</strong> ${match.final_amt ? '₱' + Number(match.final_amt).toLocaleString() : 'N/A'}</div>
+                            <div><strong>Current Margin:</strong> ${match.margin ? match.margin + '%' : 'N/A'}</div>
+                            <p class="mt-2"><em>This opportunity will be updated when you upload the calcsheet.</em></p>
+                        </div>
+                    `;
+                } else {
+                    resultsDiv.innerHTML = `
+                        <div class="warning">
+                            <h4>⚠️ Proposal Code Not Found</h4>
+                            <p><strong>Code:</strong> ${proposalCode}</p>
+                            <p>No opportunity found with this proposal code in project_code field.</p>
+                            <p><strong>Suggestions:</strong></p>
+                            <ul>
+                                <li>Check if the proposal code is correct</li>
+                                <li>Verify the opportunity exists in the database</li>
+                                <li>Use UID instead of proposal code in your Excel file</li>
+                            </ul>
+                        </div>
+                    `;
+                }
+                
+            } catch (error) {
+                resultsDiv.innerHTML = `
+                    <div class="error">
+                        <h4>❌ Lookup Failed</h4>
+                        <p><strong>Error:</strong> ${error.message}</p>
+                    </div>
+                `;
+            }
+        }
+        
+        function openMainUploadModal() {
+            // Try to open the main app's upload modal
+            if (window.opener) {
+                try {
+                    window.opener.showExcelUploadModal();
+                    alert('Upload modal opened in main application window.');
+                } catch (e) {
+                    alert('Could not access main application. Please open this test from the main app.');
+                }
+            } else {
+                window.open('/', '_blank');
+                alert('Opening main application. Use the Excel upload button there.');
+            }
+        }
+        
+        async function testCMRPWorkflow() {
+            const resultsDiv = document.getElementById('workflowResults');
+            
+            resultsDiv.innerHTML = `
+                <div class="info">
+                    <h4>🧮 CMRP Calcsheet Workflow Test</h4>
+                    <ol>
+                        <li><strong>Step 1:</strong> Prepare your CMRP calcsheet with the naming convention</li>
+                        <li><strong>Step 2:</strong> Ensure the calcsheet is password protected with "0601CMRP!"</li>
+                        <li><strong>Step 3:</strong> Include Final Amount and Margin data in your calcsheet</li>
+                        <li><strong>Step 4:</strong> Use the upload button in the main application</li>
+                        <li><strong>Step 5:</strong> The system will automatically:
+                            <ul>
+                                <li>Parse the filename for proposal code and revision</li>
+                                <li>Use the default password</li>
+                                <li>Match your opportunity by proposal code</li>
+                                <li>Update revision, amount, and margin</li>
+                            </ul>
+                        </li>
+                    </ol>
+                    <p class="mt-3"><strong>Ready to test with real data?</strong> Go to the main application and click the Excel upload button!</p>
+                </div>
+            `;
+        }
+        
+        // Auto-run filename test on page load
+        window.onload = () => {
+            testFilenameParser();
+        };
+    </script>
+</body>
+</html>

@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug Drive Folder Linking</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; max-width: 800px; margin: 0 auto; }
+        .test-section { margin: 20px 0; padding: 20px; border: 1px solid #ddd; border-radius: 8px; }
+        .success { background-color: #d4edda; color: #155724; }
+        .error { background-color: #f8d7da; color: #721c24; }
+        .info { background-color: #d1ecf1; color: #0c5460; }
+        input, button, select { margin: 5px; padding: 10px; }
+        input[type="text"] { width: 400px; }
+        pre { background: #f8f9fa; padding: 10px; border-radius: 4px; overflow-x: auto; white-space: pre-wrap; }
+        .log { border: 1px solid #ccc; padding: 10px; margin: 10px 0; border-radius: 4px; max-height: 300px; overflow-y: auto; }
+    </style>
+</head>
+<body>
+    <h1>🔍 Debug Drive Folder Linking</h1>
+    
+    <div class="test-section">
+        <h3>1. Check Authentication</h3>
+        <button onclick="checkAuth()">Check Auth Token</button>
+        <div id="auth-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h3>2. Test Folder ID Extraction</h3>
+        <input type="text" id="folder-url" placeholder="Paste Google Drive folder URL or ID here" value="https://drive.google.com/drive/folders/1GCxXtOK8hajRl9MpJR709fjX8_Zc-OxX">
+        <button onclick="testFolderIdExtraction()">Extract Folder ID</button>
+        <div id="extraction-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h3>3. Test API Call</h3>
+        <input type="text" id="test-opportunity-id" placeholder="Opportunity UID" value="453c5db8-3bb0-415c-beef-aadb3b760436">
+        <input type="text" id="test-folder-id" placeholder="Folder ID">
+        <button onclick="testAPICall()">Test Drive Folder Link</button>
+        <div id="api-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h3>Debug Logs</h3>
+        <button onclick="clearLogs()">Clear Logs</button>
+        <div id="debug-logs" class="log"></div>
+    </div>
+
+    <script>
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const div = document.createElement('div');
+            div.className = type;
+            div.innerHTML = `[${timestamp}] ${message}`;
+            document.getElementById('debug-logs').appendChild(div);
+            document.getElementById('debug-logs').scrollTop = document.getElementById('debug-logs').scrollHeight;
+        }
+        
+        function clearLogs() {
+            document.getElementById('debug-logs').innerHTML = '';
+        }
+        
+        async function checkAuth() {
+            log('🔐 Checking authentication...', 'info');
+            
+            const token = localStorage.getItem('authToken');
+            const resultDiv = document.getElementById('auth-result');
+            
+            if (!token) {
+                resultDiv.innerHTML = '<div class="error">❌ No auth token found. Please login first at <a href="/">main app</a></div>';
+                log('❌ No auth token found', 'error');
+                return false;
+            }
+            
+            try {
+                const payload = JSON.parse(atob(token.split('.')[1]));
+                const exp = new Date(payload.exp * 1000);
+                const now = new Date();
+                
+                if (exp > now) {
+                    resultDiv.innerHTML = `<div class="success">✅ Auth token valid until ${exp.toLocaleString()}</div>`;
+                    log('✅ Auth token is valid', 'success');
+                    return true;
+                } else {
+                    resultDiv.innerHTML = '<div class="error">❌ Auth token expired. Please login again.</div>';
+                    log('❌ Auth token expired', 'error');
+                    return false;
+                }
+            } catch (e) {
+                resultDiv.innerHTML = '<div class="error">❌ Invalid auth token format</div>';
+                log('❌ Invalid auth token format', 'error');
+                return false;
+            }
+        }
+        
+        function testFolderIdExtraction() {
+            log('📁 Testing folder ID extraction...', 'info');
+            
+            const input = document.getElementById('folder-url').value.trim();
+            const resultDiv = document.getElementById('extraction-result');
+            
+            if (!input) {
+                resultDiv.innerHTML = '<div class="error">❌ Please enter a folder URL or ID</div>';
+                return;
+            }
+            
+            let folderId = input;
+            
+            // Extract folder ID from URL if a full URL was pasted
+            if (input.includes('drive.google.com/drive/folders/')) {
+                const urlParts = input.split('/folders/');
+                if (urlParts.length > 1) {
+                    folderId = urlParts[1].split('?')[0]; // Remove query parameters
+                }
+            }
+            
+            // Validate folder ID format
+            let status = 'info';
+            let message = '';
+            
+            if (folderId.length < 10) {
+                status = 'error';
+                message = '❌ Folder ID too short (minimum 10 characters)';
+            } else if (folderId.length > 100) {
+                status = 'error';
+                message = '❌ Folder ID too long (maximum 100 characters)';
+            } else {
+                status = 'success';
+                message = '✅ Folder ID format looks valid';
+            }
+            
+            resultDiv.innerHTML = `
+                <div class="${status}">
+                    <strong>Input:</strong> ${input}<br>
+                    <strong>Extracted ID:</strong> ${folderId}<br>
+                    <strong>Length:</strong> ${folderId.length} characters<br>
+                    ${message}
+                </div>
+            `;
+            
+            // Update the test folder ID field
+            document.getElementById('test-folder-id').value = folderId;
+            
+            log(`📁 Extracted folder ID: ${folderId} (${folderId.length} chars)`, status);
+        }
+        
+        async function testAPICall() {
+            log('🚀 Testing API call...', 'info');
+            
+            const resultDiv = document.getElementById('api-result');
+            
+            // Check auth first
+            const authValid = await checkAuth();
+            if (!authValid) {
+                resultDiv.innerHTML = '<div class="error">❌ Cannot test API - authentication required</div>';
+                return;
+            }
+            
+            const opportunityId = document.getElementById('test-opportunity-id').value.trim();
+            const folderId = document.getElementById('test-folder-id').value.trim();
+            
+            if (!opportunityId || !folderId) {
+                resultDiv.innerHTML = '<div class="error">❌ Please provide both Opportunity ID and Folder ID</div>';
+                log('❌ Missing opportunity ID or folder ID', 'error');
+                return;
+            }
+            
+            try {
+                const token = localStorage.getItem('authToken');
+                const requestBody = { folderId };
+                
+                log(`📤 Sending PUT request to /api/opportunities/${opportunityId}/drive-folder`, 'info');
+                log(`📋 Request body: ${JSON.stringify(requestBody)}`, 'info');
+                
+                resultDiv.innerHTML = '<div class="info">🔄 Sending API request...</div>';
+                
+                const response = await fetch(`http://localhost:3000/api/opportunities/${opportunityId}/drive-folder`, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(requestBody)
+                });
+                
+                log(`📡 Response: ${response.status} ${response.statusText}`, response.ok ? 'success' : 'error');
+                
+                const data = await response.json();
+                log(`📋 Response data: ${JSON.stringify(data, null, 2)}`, 'info');
+                
+                if (response.ok) {
+                    resultDiv.innerHTML = `
+                        <div class="success">
+                            ✅ Success! Folder linked successfully.<br>
+                            <pre>${JSON.stringify(data, null, 2)}</pre>
+                        </div>
+                    `;
+                } else {
+                    resultDiv.innerHTML = `
+                        <div class="error">
+                            ❌ API call failed (${response.status})<br>
+                            <pre>${JSON.stringify(data, null, 2)}</pre>
+                        </div>
+                    `;
+                }
+                
+            } catch (error) {
+                log(`❌ API call error: ${error.message}`, 'error');
+                resultDiv.innerHTML = `<div class="error">❌ Error: ${error.message}</div>`;
+            }
+        }
+        
+        // Auto-run auth check on page load
+        window.onload = () => {
+            checkAuth();
+        };
+    </script>
+</body>
+</html>

@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CSV Formatter Test</title>
+  <script src="config.js"></script>
+</head>
+<body>
+  <h1>CSV Formatter Database Connectivity Test</h1>
+  <div id="status">Testing...</div>
+  <div id="results"></div>
+  
+  <script>
+    // API Configuration
+    function getApiUrl(endpoint) {
+      if (typeof window !== 'undefined' && window.APP_CONFIG) {
+        return window.APP_CONFIG.API_BASE_URL + endpoint;
+      }
+      return 'http://localhost:3000' + endpoint;
+    }
+
+    async function testDatabaseConnection() {
+      const statusDiv = document.getElementById('status');
+      const resultsDiv = document.getElementById('results');
+      
+      try {
+        // First, try to get a token for testing
+        statusDiv.innerHTML = 'Step 1: Checking authentication...';
+        
+        const authToken = localStorage.getItem('authToken');
+        if (!authToken) {
+          statusDiv.innerHTML = '❌ No auth token found. Please login first.';
+          return;
+        }
+        
+        statusDiv.innerHTML = 'Step 2: Testing database connection...';
+        
+        const response = await fetch(getApiUrl('/api/opportunities'), {
+          method: 'GET',
+          headers: { 
+            'Authorization': `Bearer ${authToken}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const projects = await response.json();
+        
+        statusDiv.innerHTML = '✅ Database connection successful!';
+        
+        resultsDiv.innerHTML = `
+          <h3>Database Results:</h3>
+          <p><strong>Total Projects:</strong> ${projects.length}</p>
+          <h4>Sample Projects (first 5):</h4>
+          <ul>
+            ${projects.slice(0, 5).map(p => 
+              `<li><strong>${p.project_name || 'No name'}</strong> (Code: ${p.project_code || 'No code'}) - UID: ${p.uid}</li>`
+            ).join('')}
+          </ul>
+          <h4>UID Lookup Test:</h4>
+          <p>You can now test the CSV formatter with project names like:</p>
+          <ul>
+            ${projects.slice(0, 3).map(p => 
+              `<li>"${p.project_name}" or "${p.project_code}"</li>`
+            ).join('')}
+          </ul>
+        `;
+        
+      } catch (error) {
+        statusDiv.innerHTML = `❌ Error: ${error.message}`;
+        resultsDiv.innerHTML = `
+          <p>Possible issues:</p>
+          <ul>
+            <li>Not logged in - please login first</li>
+            <li>Invalid authentication token</li>
+            <li>Database connection problem</li>
+            <li>Server not running</li>
+          </ul>
+        `;
+      }
+    }
+    
+    // Run test on page load
+    document.addEventListener('DOMContentLoaded', testDatabaseConnection);
+  </script>
+</body>
+</html>

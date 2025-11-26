@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Revision Tracking</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 p-6">
+    <div class="max-w-4xl mx-auto">
+        <h1 class="text-3xl font-bold mb-6">Revision Tracking Test</h1>
+        
+        <!-- Test Update Form -->
+        <div class="bg-white p-6 rounded-lg shadow-md mb-6">
+            <h2 class="text-xl font-semibold mb-4">Update Opportunity</h2>
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium mb-2">Opportunity UID:</label>
+                    <input type="text" id="uid" class="w-full p-2 border rounded" placeholder="Enter opportunity UID" value="a2d43e47-fd96-41dc-b086-2cae6fbe6054">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium mb-2">Project Name:</label>
+                    <input type="text" id="project_name" class="w-full p-2 border rounded" placeholder="New project name">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium mb-2">Client:</label>
+                    <input type="text" id="client" class="w-full p-2 border rounded" placeholder="New client name">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium mb-2">Final Amount:</label>
+                    <input type="text" id="final_amt" class="w-full p-2 border rounded" placeholder="₱100,000">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium mb-2">Revision Number:</label>
+                    <input type="number" id="rev" class="w-full p-2 border rounded" placeholder="1">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium mb-2">Changed By:</label>
+                    <input type="text" id="changed_by" class="w-full p-2 border rounded" placeholder="test_user">
+                </div>
+            </div>
+            <button onclick="updateOpportunity()" class="mt-4 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
+                Update Opportunity
+            </button>
+        </div>
+
+        <!-- Results Display -->
+        <div class="bg-white p-6 rounded-lg shadow-md mb-6">
+            <h2 class="text-xl font-semibold mb-4">Results</h2>
+            <div id="results" class="text-sm bg-gray-50 p-4 rounded border min-h-20">
+                Updates and revision history will appear here...
+            </div>
+        </div>
+
+        <!-- Revision History -->
+        <div class="bg-white p-6 rounded-lg shadow-md">
+            <h2 class="text-xl font-semibold mb-4">Revision History</h2>
+            <button onclick="loadRevisionHistory()" class="mb-4 bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">
+                Load Revision History
+            </button>
+            <div id="revision-history" class="overflow-x-auto">
+                <table class="w-full border-collapse border border-gray-300">
+                    <thead>
+                        <tr class="bg-gray-100">
+                            <th class="border border-gray-300 px-3 py-2">Rev #</th>
+                            <th class="border border-gray-300 px-3 py-2">Changed By</th>
+                            <th class="border border-gray-300 px-3 py-2">Changed At</th>
+                            <th class="border border-gray-300 px-3 py-2">Field</th>
+                            <th class="border border-gray-300 px-3 py-2">Old Value</th>
+                            <th class="border border-gray-300 px-3 py-2">New Value</th>
+                        </tr>
+                    </thead>
+                    <tbody id="revision-tbody">
+                        <tr><td colspan="6" class="text-center p-4">Load revision history to see changes...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentUID = '';
+
+        async function updateOpportunity() {
+            const uid = document.getElementById('uid').value.trim();
+            const project_name = document.getElementById('project_name').value.trim();
+            const client = document.getElementById('client').value.trim();
+            const final_amt = document.getElementById('final_amt').value.trim();
+            const rev = document.getElementById('rev').value.trim();
+            const changed_by = document.getElementById('changed_by').value.trim();
+
+            if (!uid) {
+                alert('Please enter an opportunity UID');
+                return;
+            }
+
+            currentUID = uid;
+
+            const updateData = { changed_by };
+            if (project_name) updateData.project_name = project_name;
+            if (client) updateData.client = client;
+            if (final_amt) updateData.final_amt = final_amt;
+            if (rev) updateData.rev = parseInt(rev);
+
+            try {
+                const response = await fetch(`http://localhost:3000/api/test/opportunities/${encodeURIComponent(uid)}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(updateData)
+                });
+
+                const result = await response.text();
+                const resultsDiv = document.getElementById('results');
+                
+                if (response.ok) {
+                    resultsDiv.innerHTML = `<div class="text-green-600 font-semibold">✅ Update successful!</div><pre class="mt-2 text-xs">${result}</pre>`;
+                    // Auto-load revision history after successful update
+                    setTimeout(loadRevisionHistory, 1000);
+                } else {
+                    resultsDiv.innerHTML = `<div class="text-red-600 font-semibold">❌ Update failed!</div><pre class="mt-2 text-xs">${result}</pre>`;
+                }
+            } catch (error) {
+                document.getElementById('results').innerHTML = `<div class="text-red-600 font-semibold">❌ Error: ${error.message}</div>`;
+            }
+        }
+
+        async function loadRevisionHistory() {
+            const uid = currentUID || document.getElementById('uid').value.trim();
+            if (!uid) {
+                alert('Please enter an opportunity UID');
+                return;
+            }
+
+            try {
+                const response = await fetch(`http://localhost:3000/api/test/opportunities/${encodeURIComponent(uid)}/revisions`, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const revisions = await response.json();
+                const tbody = document.getElementById('revision-tbody');
+                
+                if (revisions.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" class="text-center p-4">No revision history found.</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = '';
+                revisions.forEach(revision => {
+                    // Parse changed fields
+                    let changedFields = {};
+                    try {
+                        changedFields = JSON.parse(revision.changed_fields || '{}');
+                    } catch (e) {
+                        console.warn('Failed to parse changed_fields:', e);
+                    }
+
+                    const fieldNames = Object.keys(changedFields);
+                    
+                    if (fieldNames.length === 0) {
+                        // No specific field changes
+                        const row = document.createElement('tr');
+                        row.innerHTML = `
+                            <td class="border border-gray-300 px-3 py-2">${revision.revision_number || 'N/A'}</td>
+                            <td class="border border-gray-300 px-3 py-2">${revision.changed_by || 'N/A'}</td>
+                            <td class="border border-gray-300 px-3 py-2">${new Date(revision.changed_at).toLocaleString()}</td>
+                            <td class="border border-gray-300 px-3 py-2">General update</td>
+                            <td class="border border-gray-300 px-3 py-2">-</td>
+                            <td class="border border-gray-300 px-3 py-2">-</td>
+                        `;
+                        tbody.appendChild(row);
+                    } else {
+                        // Show specific field changes
+                        fieldNames.forEach((fieldName, index) => {
+                            const row = document.createElement('tr');
+                            const changeInfo = changedFields[fieldName];
+                            
+                            let oldValue = '-';
+                            let newValue = '-';
+                            
+                            if (changeInfo && typeof changeInfo === 'object' && changeInfo.hasOwnProperty('old') && changeInfo.hasOwnProperty('new')) {
+                                oldValue = changeInfo.old !== null && changeInfo.old !== undefined ? changeInfo.old : '(empty)';
+                                newValue = changeInfo.new !== null && changeInfo.new !== undefined ? changeInfo.new : '(empty)';
+                            }
+                            
+                            row.innerHTML = `
+                                <td class="border border-gray-300 px-3 py-2">${index === 0 ? (revision.revision_number || 'N/A') : '↳'}</td>
+                                <td class="border border-gray-300 px-3 py-2">${index === 0 ? (revision.changed_by || 'N/A') : '↳'}</td>
+                                <td class="border border-gray-300 px-3 py-2">${index === 0 ? new Date(revision.changed_at).toLocaleString() : '↳'}</td>
+                                <td class="border border-gray-300 px-3 py-2">${fieldName.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</td>
+                                <td class="border border-gray-300 px-3 py-2">${oldValue}</td>
+                                <td class="border border-gray-300 px-3 py-2">${newValue}</td>
+                            `;
+                            tbody.appendChild(row);
+                        });
+                    }
+                });
+
+            } catch (error) {
+                document.getElementById('revision-tbody').innerHTML = `<tr><td colspan="6" class="text-center p-4 text-red-600">Error: ${error.message}</td></tr>`;
+            }
+        }
+    </script>
+</body>
+</html>

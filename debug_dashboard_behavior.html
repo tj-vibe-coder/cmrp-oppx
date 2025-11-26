@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug Dashboard Behavior</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .dashboard-card {
+            background: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 16px;
+            margin: 8px;
+        }
+        .changed {
+            background-color: #fef2f2 !important;
+            border-color: #ef4444 !important;
+        }
+        .stable {
+            background-color: #f0f9ff !important;
+            border-color: #3b82f6 !important;
+        }
+        .log-entry {
+            margin: 4px 0;
+            padding: 8px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .log-change {
+            background-color: #fef2f2;
+            color: #dc2626;
+            border-left: 4px solid #dc2626;
+        }
+        .log-stable {
+            background-color: #f0f9ff;
+            color: #1d4ed8;
+            border-left: 4px solid #1d4ed8;
+        }
+        .log-info {
+            background-color: #f9fafb;
+            color: #374151;
+            border-left: 4px solid #6b7280;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 p-4">
+    <div class="max-w-6xl mx-auto">
+        <h1 class="text-2xl font-bold mb-4">🔍 Dashboard Behavior Debug Test</h1>
+        
+        <div class="bg-white p-4 rounded-lg mb-4">
+            <h2 class="text-lg font-semibold mb-2">Test Controls</h2>
+            <div class="flex gap-4 mb-4">
+                <button id="startTest" class="bg-blue-500 text-white px-4 py-2 rounded">Start Test</button>
+                <button id="stopTest" class="bg-red-500 text-white px-4 py-2 rounded">Stop Test</button>
+                <button id="clearLog" class="bg-gray-500 text-white px-4 py-2 rounded">Clear Log</button>
+            </div>
+            
+            <div class="flex gap-4 mb-4">
+                <label>Account Manager Filter:</label>
+                <select id="accountMgrFilter" class="border rounded px-2 py-1">
+                    <option value="all">All</option>
+                </select>
+                <label>Solutions Filter:</label>
+                <select id="solutionsFilter" class="border rounded px-2 py-1">
+                    <option value="all">All</option>
+                </select>
+            </div>
+            
+            <div id="status" class="p-2 rounded font-semibold">Ready to start test</div>
+        </div>
+
+        <!-- Current Dashboard Values -->
+        <div class="bg-white p-4 rounded-lg mb-4">
+            <h2 class="text-lg font-semibold mb-2">📊 Current Dashboard Values</h2>
+            <div class="grid grid-cols-4 gap-4">
+                <div id="card-totalOpportunities" class="dashboard-card">
+                    <div class="text-sm text-gray-600">Total Opportunities</div>
+                    <div id="totalOpportunities" class="text-2xl font-bold">--</div>
+                </div>
+                <div id="card-op100Summary" class="dashboard-card">
+                    <div class="text-sm text-gray-600">OP100 Summary</div>
+                    <div id="op100Summary" class="text-2xl font-bold">--</div>
+                </div>
+                <div id="card-op90Summary" class="dashboard-card">
+                    <div class="text-sm text-gray-600">OP90 Summary</div>
+                    <div id="op90Summary" class="text-2xl font-bold">--</div>
+                </div>
+                <div id="card-totalSubmitted" class="dashboard-card">
+                    <div class="text-sm text-gray-600">Total Submitted</div>
+                    <div id="totalSubmitted" class="text-2xl font-bold">--</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Change Detection Log -->
+        <div class="bg-white p-4 rounded-lg">
+            <h2 class="text-lg font-semibold mb-2">📝 Change Detection Log</h2>
+            <div id="log" class="max-h-96 overflow-y-auto border rounded p-2"></div>
+        </div>
+    </div>
+
+    <script>
+        let isTestRunning = false;
+        let testInterval;
+        let lastValues = {};
+        let changeCount = 0;
+        
+        function log(message, type = 'info') {
+            const logDiv = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${type}`;
+            entry.innerHTML = `<strong>${new Date().toLocaleTimeString()}</strong> ${message}`;
+            logDiv.appendChild(entry);
+            logDiv.scrollTop = logDiv.scrollHeight;
+            console.log(`[${type.toUpperCase()}] ${message}`);
+        }
+        
+        function updateStatus(message, type = 'info') {
+            const statusDiv = document.getElementById('status');
+            statusDiv.textContent = message;
+            statusDiv.className = `p-2 rounded font-semibold ${
+                type === 'changed' ? 'bg-red-100 text-red-800' :
+                type === 'stable' ? 'bg-blue-100 text-blue-800' :
+                'bg-gray-100 text-gray-800'
+            }`;
+        }
+        
+        async function getCurrentDashboardValues() {
+            const values = {};
+            
+            // Read current dashboard card values from the main page
+            const iframe = document.getElementById('mainApp');
+            if (iframe && iframe.contentWindow) {
+                const doc = iframe.contentDocument || iframe.contentWindow.document;
+                
+                // Try to get values from the iframe
+                const totalOpps = doc.getElementById('totalOpportunities');
+                const op100 = doc.getElementById('op100Summary');
+                const op90 = doc.getElementById('op90Summary');
+                const totalSub = doc.getElementById('totalSubmitted');
+                
+                values.totalOpportunities = totalOpps ? totalOpps.textContent : 'N/A';
+                values.op100Summary = op100 ? op100.textContent : 'N/A';
+                values.op90Summary = op90 ? op90.textContent : 'N/A';
+                values.totalSubmitted = totalSub ? totalSub.textContent : 'N/A';
+            } else {
+                // Fallback: try to fetch data directly from API
+                try {
+                    const response = await fetch('/api/opportunities');
+                    const data = await response.json();
+                    
+                    values.totalOpportunities = data.length.toString();
+                    values.op100Summary = data.filter(opp => opp.opp_status?.toLowerCase() === 'op100').length.toString();
+                    values.op90Summary = data.filter(opp => opp.opp_status?.toLowerCase() === 'op90').length.toString();
+                    values.totalSubmitted = data.filter(opp => 
+                        opp.opp_status?.toLowerCase() === 'op30' || 
+                        opp.opp_status?.toLowerCase() === 'op60'
+                    ).length.toString();
+                } catch (error) {
+                    log(`Error fetching API data: ${error.message}`, 'change');
+                    values.totalOpportunities = 'Error';
+                    values.op100Summary = 'Error';
+                    values.op90Summary = 'Error';
+                    values.totalSubmitted = 'Error';
+                }
+            }
+            
+            return values;
+        }
+        
+        function updateDisplay(values) {
+            document.getElementById('totalOpportunities').textContent = values.totalOpportunities;
+            document.getElementById('op100Summary').textContent = values.op100Summary;
+            document.getElementById('op90Summary').textContent = values.op90Summary;
+            document.getElementById('totalSubmitted').textContent = values.totalSubmitted;
+        }
+        
+        function checkForChanges(currentValues) {
+            let hasChanged = false;
+            
+            for (const key in currentValues) {
+                const cardElement = document.getElementById(`card-${key}`);
+                
+                if (lastValues[key] && lastValues[key] !== currentValues[key]) {
+                    log(`🔴 CHANGE DETECTED: ${key} changed from "${lastValues[key]}" to "${currentValues[key]}"`, 'change');
+                    hasChanged = true;
+                    changeCount++;
+                    
+                    // Highlight the changed card
+                    if (cardElement) {
+                        cardElement.className = cardElement.className.replace(/\s*(stable|changed)/g, '') + ' changed';
+                    }
+                } else if (lastValues[key] && lastValues[key] === currentValues[key]) {
+                    // Mark as stable
+                    if (cardElement) {
+                        cardElement.className = cardElement.className.replace(/\s*(stable|changed)/g, '') + ' stable';
+                    }
+                }
+            }
+            
+            if (hasChanged) {
+                updateStatus(`${changeCount} changes detected - DASHBOARD NOT INDEPENDENT!`, 'changed');
+                log(`⚠️ Dashboard values changed! This indicates filters are affecting dashboard cards.`, 'change');
+            } else if (Object.keys(lastValues).length > 0) {
+                updateStatus('All values stable - Dashboard working correctly ✅', 'stable');
+                log(`✅ All values remain unchanged - dashboard independence working correctly`, 'stable');
+            }
+            
+            lastValues = { ...currentValues };
+        }
+        
+        async function testStep() {
+            if (!isTestRunning) return;
+            
+            try {
+                const currentValues = await getCurrentDashboardValues();
+                updateDisplay(currentValues);
+                checkForChanges(currentValues);
+            } catch (error) {
+                log(`Error during test step: ${error.message}`, 'change');
+            }
+        }
+        
+        async function startTest() {
+            if (isTestRunning) return;
+            
+            isTestRunning = true;
+            changeCount = 0;
+            lastValues = {};
+            
+            log('🚀 Starting dashboard behavior test...', 'info');
+            updateStatus('Test running...', 'info');
+            
+            // Initial reading
+            const initialValues = await getCurrentDashboardValues();
+            updateDisplay(initialValues);
+            lastValues = { ...initialValues };
+            log(`📊 Initial values: ${JSON.stringify(initialValues)}`, 'info');
+            
+            // Start monitoring every 2 seconds
+            testInterval = setInterval(testStep, 2000);
+            
+            document.getElementById('startTest').disabled = true;
+            document.getElementById('stopTest').disabled = false;
+        }
+        
+        function stopTest() {
+            if (!isTestRunning) return;
+            
+            isTestRunning = false;
+            if (testInterval) {
+                clearInterval(testInterval);
+                testInterval = null;
+            }
+            
+            log('🛑 Test stopped', 'info');
+            updateStatus('Test stopped', 'info');
+            
+            document.getElementById('startTest').disabled = false;
+            document.getElementById('stopTest').disabled = true;
+        }
+        
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+            changeCount = 0;
+            log('🧹 Log cleared', 'info');
+        }
+        
+        async function populateFilterDropdowns() {
+            try {
+                const response = await fetch('/api/opportunities');
+                const data = await response.json();
+                
+                // Populate account managers
+                const accountMgrs = [...new Set(data.map(opp => opp.account_mgr).filter(Boolean))];
+                const accountMgrSelect = document.getElementById('accountMgrFilter');
+                accountMgrSelect.innerHTML = '<option value="all">All</option>';
+                accountMgrs.forEach(mgr => {
+                    const option = document.createElement('option');
+                    option.value = mgr;
+                    option.textContent = mgr;
+                    accountMgrSelect.appendChild(option);
+                });
+                
+                // Populate solutions
+                const solutions = [...new Set(data.map(opp => opp.solutions).filter(Boolean))];
+                const solutionsSelect = document.getElementById('solutionsFilter');
+                solutionsSelect.innerHTML = '<option value="all">All</option>';
+                solutions.forEach(sol => {
+                    const option = document.createElement('option');
+                    option.value = sol;
+                    option.textContent = sol;
+                    solutionsSelect.appendChild(option);
+                });
+                
+                log(`📋 Loaded ${accountMgrs.length} account managers and ${solutions.length} solutions`, 'info');
+            } catch (error) {
+                log(`Error loading filter options: ${error.message}`, 'change');
+            }
+        }
+        
+        // Event listeners
+        document.getElementById('startTest').addEventListener('click', startTest);
+        document.getElementById('stopTest').addEventListener('click', stopTest);
+        document.getElementById('clearLog').addEventListener('click', clearLog);
+        
+        document.getElementById('accountMgrFilter').addEventListener('change', function() {
+            log(`🔄 Account Manager filter changed to: "${this.value}"`, 'info');
+        });
+        
+        document.getElementById('solutionsFilter').addEventListener('change', function() {
+            log(`🔄 Solutions filter changed to: "${this.value}"`, 'info');
+        });
+        
+        // Initialize
+        window.addEventListener('load', function() {
+            populateFilterDropdowns();
+            log('🎯 Debug test page loaded. Click "Start Test" and then change filters to see if dashboard values change.', 'info');
+        });
+    </script>
+</body>
+</html>

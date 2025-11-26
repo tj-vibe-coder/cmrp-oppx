@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Revision History Parsing</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .revision-item { border: 1px solid #ddd; margin: 10px 0; padding: 10px; border-radius: 5px; }
+        .changes { margin-left: 20px; }
+        .change-item { margin: 5px 0; }
+    </style>
+</head>
+<body>
+    <h1>Revision History Parsing Test</h1>
+    <div id="revisionList"></div>
+
+    <script>
+        // Sample revision data that mimics what the API would return
+        const sampleRevisions = [
+            {
+                id: 1,
+                user_name: "Reuel Rivera",
+                created_at: "2024-01-15T10:30:00Z",
+                changed_fields: JSON.stringify({
+                    "rev": { "old": "A", "new": "B" },
+                    "margin": { "old": "15%", "new": "20%" },
+                    "final_amt": { "old": "50000", "new": "75000" }
+                })
+            },
+            {
+                id: 2,
+                user_name: "John Doe",
+                created_at: "2024-01-14T09:15:00Z",
+                changed_fields: "{\"client\":{\"old\":\"ABC Corp\",\"new\":\"XYZ Corp\"},\"project_name\":{\"old\":\"Project Alpha\",\"new\":\"Project Beta\"}}"
+            },
+            {
+                id: 3,
+                user_name: "Jane Smith",
+                created_at: "2024-01-13T14:45:00Z",
+                changed_fields: {}
+            },
+            {
+                id: 4,
+                user_name: "Mike Johnson",
+                created_at: "2024-01-12T16:20:00Z",
+                changed_fields: null
+            }
+        ];
+
+        // This is the updated parsing logic from app.js
+        function formatRevisionChanges(changedFields) {
+            let changes = '';
+            
+            // Handle null or undefined
+            if (!changedFields) {
+                return 'Initial revision';
+            }
+            
+            let parsedFields;
+            
+            // Handle string type (JSON stored as string)
+            if (typeof changedFields === 'string') {
+                try {
+                    parsedFields = JSON.parse(changedFields);
+                } catch (e) {
+                    console.warn('Failed to parse changed_fields as JSON:', e);
+                    return 'General update';
+                }
+            } 
+            // Handle object type (already parsed JSON)
+            else if (typeof changedFields === 'object') {
+                parsedFields = changedFields;
+            }
+            else {
+                return 'General update';
+            }
+            
+            // Check if parsedFields has any keys
+            if (!parsedFields || Object.keys(parsedFields).length === 0) {
+                return 'Initial revision';
+            }
+            
+            // Format the field changes
+            for (const [field, change] of Object.entries(parsedFields)) {
+                if (change && typeof change === 'object' && change.old !== undefined && change.new !== undefined) {
+                    changes += `<div class="change-item"><strong>${field}:</strong> "${change.old}" → "${change.new}"</div>`;
+                } else {
+                    changes += `<div class="change-item"><strong>${field}:</strong> updated</div>`;
+                }
+            }
+            
+            return changes || 'General update';
+        }
+
+        // Render the test revisions
+        function renderRevisions() {
+            const container = document.getElementById('revisionList');
+            
+            sampleRevisions.forEach(revision => {
+                const revisionDiv = document.createElement('div');
+                revisionDiv.className = 'revision-item';
+                
+                const changes = formatRevisionChanges(revision.changed_fields);
+                
+                revisionDiv.innerHTML = `
+                    <h3>Revision #${revision.id}</h3>
+                    <p><strong>User:</strong> ${revision.user_name}</p>
+                    <p><strong>Date:</strong> ${new Date(revision.created_at).toLocaleString()}</p>
+                    <p><strong>Changed Fields Type:</strong> ${typeof revision.changed_fields}</p>
+                    <p><strong>Changed Fields Value:</strong> ${JSON.stringify(revision.changed_fields)}</p>
+                    <div class="changes">
+                        <strong>Parsed Changes:</strong>
+                        ${changes}
+                    </div>
+                `;
+                
+                container.appendChild(revisionDiv);
+            });
+        }
+
+        // Run the test
+        renderRevisions();
+    </script>
+</body>
+</html>

@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Edit 400 Error Debug</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background: #f9f9f9;
+        }
+        .console-output {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 15px;
+            border-radius: 6px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 400px;
+            overflow-y: auto;
+            margin: 15px 0;
+        }
+        .success { color: #28a745; font-weight: bold; }
+        .error { color: #dc3545; font-weight: bold; }
+        .warning { color: #ffc107; font-weight: bold; }
+        .info { color: #007bff; font-weight: bold; }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background: #0056b3; }
+        .test-form {
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid #ddd;
+            margin: 10px 0;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        .form-group input, .form-group select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        .btn {
+            background: #28a745;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .btn:hover {
+            background: #218838;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 Edit 400 Error Debug Tool</h1>
+        
+        <div class="test-section">
+            <h2>📋 Issue Summary</h2>
+            <p><strong>Problem:</strong> 400 Bad Request error when editing opportunities</p>
+            <p><strong>Symptoms:</strong> "Failed to update opportunity" appears in console</p>
+            <p><strong>Goal:</strong> Identify what validation is failing in the PUT request</p>
+        </div>
+
+        <div class="test-section">
+            <h2>🧪 Test Steps</h2>
+            <ol>
+                <li><strong>Open Main App:</strong> <button onclick="openMainApp()">🚀 Open Main App</button></li>
+                <li><strong>Login if needed</strong></li>
+                <li><strong>Try to edit any opportunity</strong> - make a small change and save</li>
+                <li><strong>Check server logs</strong> and browser console for detailed error information</li>
+                <li><strong>Review the debugging output below</strong></li>
+            </ol>
+        </div>
+
+        <div class="test-section">
+            <h2>🔧 Simulated Edit Test</h2>
+            <p>This simulates an edit operation to test validation logic:</p>
+            
+            <form class="test-form" id="simulatedEditForm">
+                <div class="form-group">
+                    <label for="project_name">Project Name</label>
+                    <input type="text" id="project_name" name="project_name" value="Test Project ABC">
+                </div>
+                
+                <div class="form-group">
+                    <label for="status">Status</label>
+                    <select id="status" name="status">
+                        <option value="">Select Status...</option>
+                        <option value="Op25">Op25</option>
+                        <option value="Op50" selected>Op50</option>
+                        <option value="Op75">Op75</option>
+                        <option value="Op100">Op100</option>
+                        <option value="Lost">Lost</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="client">Client</label>
+                    <input type="text" id="client" name="client" value="Test Client Inc">
+                </div>
+                
+                <div class="form-group">
+                    <label for="final_amt">Final Amount</label>
+                    <input type="number" id="final_amt" name="final_amt" value="50000">
+                </div>
+                
+                <div class="form-group">
+                    <label for="margin">Margin</label>
+                    <input type="number" id="margin" name="margin" value="15000">
+                </div>
+                
+                <button type="button" class="btn" onclick="simulateEdit()">🔄 Simulate Edit Request</button>
+                <button type="button" class="btn" onclick="testValidationRules()">🧪 Test Validation Rules</button>
+            </form>
+        </div>
+
+        <div class="test-section">
+            <h2>📊 Debug Console</h2>
+            <div class="console-output" id="debugConsole">
+                <div style="color: #569cd6;">Edit 400 Error Debug Console Ready</div>
+                <div style="color: #6a9955;">// Use the buttons above to test edit functionality</div>
+            </div>
+            <button onclick="clearConsole()">🗑️ Clear Console</button>
+        </div>
+
+        <div class="test-section">
+            <h2>🔍 Server Log Monitoring</h2>
+            <p>Monitor the server terminal for these debug messages:</p>
+            <ul>
+                <li><strong>[PUT] Request headers:</strong> Shows the incoming request</li>
+                <li><strong>[PUT] Raw body received:</strong> Shows the data being sent</li>
+                <li><strong>[PUT] Validation errors:</strong> Shows what validation is failing</li>
+            </ul>
+            <button onclick="copyServerLogCommand()">📋 Copy Server Log Command</button>
+        </div>
+
+        <div class="test-section">
+            <h2>🛠️ Common 400 Error Causes</h2>
+            <ul>
+                <li><strong>String length validation:</strong> Fields too short/long</li>
+                <li><strong>Numeric validation:</strong> Invalid number formats</li>
+                <li><strong>Date validation:</strong> Invalid date formats</li>
+                <li><strong>Required field validation:</strong> Missing required data</li>
+                <li><strong>Data type validation:</strong> Wrong data types</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        const debugConsole = document.getElementById('debugConsole');
+        
+        function log(message, type = 'info') {
+            const div = document.createElement('div');
+            const timestamp = new Date().toLocaleTimeString();
+            
+            switch(type) {
+                case 'error':
+                    div.style.color = '#f85149';
+                    break;
+                case 'success':
+                    div.style.color = '#3fb950';
+                    break;
+                case 'warning':
+                    div.style.color = '#f2cc60';
+                    break;
+                default:
+                    div.style.color = '#d4d4d4';
+            }
+            
+            div.innerHTML = `[${timestamp}] ${message}`;
+            debugConsole.appendChild(div);
+            debugConsole.scrollTop = debugConsole.scrollHeight;
+        }
+        
+        function clearConsole() {
+            debugConsole.innerHTML = '';
+            log('Console cleared');
+        }
+        
+        function openMainApp() {
+            window.open('http://localhost:3000', '_blank');
+            log('🚀 Main application opened! Now try editing an opportunity.', 'info');
+        }
+        
+        function copyServerLogCommand() {
+            const command = `cd "/Users/reuelrivera/Documents/CMRP Opps Management" && node server.js`;
+            navigator.clipboard.writeText(command).then(() => {
+                log('📋 Server log command copied to clipboard!', 'success');
+            }).catch(() => {
+                log('❌ Failed to copy command', 'error');
+            });
+        }
+        
+        async function simulateEdit() {
+            log('=== SIMULATING EDIT REQUEST ===', 'info');
+            
+            const form = document.getElementById('simulatedEditForm');
+            const formData = new FormData(form);
+            const changedFields = {};
+            
+            // Simulate change detection
+            for (const [key, value] of formData.entries()) {
+                if (value && value.trim() !== '') {
+                    changedFields[key] = value;
+                }
+            }
+            
+            // Add metadata
+            changedFields.changed_by = 'Test User';
+            
+            log('Changed fields to send:', 'info');
+            log(JSON.stringify(changedFields, null, 2), 'info');
+            
+            // Simulate validation checks
+            const validationErrors = [];
+            
+            // Check string length validation
+            if (changedFields.project_name && changedFields.project_name.length < 2) {
+                validationErrors.push('project_name: String too short (min 2 characters)');
+            }
+            if (changedFields.project_name && changedFields.project_name.length > 200) {
+                validationErrors.push('project_name: String too long (max 200 characters)');
+            }
+            
+            // Check numeric validation
+            if (changedFields.final_amt && isNaN(Number(changedFields.final_amt))) {
+                validationErrors.push('final_amt: Must be numeric');
+            }
+            if (changedFields.margin && isNaN(Number(changedFields.margin))) {
+                validationErrors.push('margin: Must be numeric');
+            }
+            
+            if (validationErrors.length > 0) {
+                log('❌ VALIDATION ERRORS FOUND:', 'error');
+                validationErrors.forEach(error => log('  ' + error, 'error'));
+            } else {
+                log('✅ VALIDATION PASSED - No obvious validation errors', 'success');
+            }
+            
+            // Simulate the actual API call (without sending)
+            log('=== SIMULATED API REQUEST ===', 'info');
+            log('Method: PUT', 'info');
+            log('URL: /api/opportunities/[uid]', 'info');
+            log('Headers: Content-Type: application/json', 'info');
+            log('Body: ' + JSON.stringify(changedFields, null, 2), 'info');
+        }
+        
+        function testValidationRules() {
+            log('=== TESTING VALIDATION RULES ===', 'info');
+            
+            const testCases = [
+                { field: 'project_name', value: 'A', expected: 'FAIL', reason: 'Too short (min 2 chars)' },
+                { field: 'project_name', value: 'Valid Project', expected: 'PASS', reason: 'Valid length' },
+                { field: 'final_amt', value: 'not_a_number', expected: 'FAIL', reason: 'Not numeric' },
+                { field: 'final_amt', value: '50000', expected: 'PASS', reason: 'Valid number' },
+                { field: 'margin', value: 'abc', expected: 'FAIL', reason: 'Not numeric' },
+                { field: 'margin', value: '15000', expected: 'PASS', reason: 'Valid number' },
+            ];
+            
+            testCases.forEach(testCase => {
+                let result = 'PASS';
+                let actualReason = 'Valid';
+                
+                if (testCase.field === 'project_name') {
+                    if (testCase.value.length < 2 || testCase.value.length > 200) {
+                        result = 'FAIL';
+                        actualReason = testCase.value.length < 2 ? 'Too short' : 'Too long';
+                    }
+                } else if (['final_amt', 'margin'].includes(testCase.field)) {
+                    if (isNaN(Number(testCase.value))) {
+                        result = 'FAIL';
+                        actualReason = 'Not numeric';
+                    }
+                }
+                
+                const passed = result === testCase.expected;
+                log(`${testCase.field}: "${testCase.value}" → ${result} (${actualReason}) ${passed ? '✅' : '❌'}`, 
+                    passed ? 'success' : 'error');
+            });
+        }
+        
+        // Initialize
+        setTimeout(() => {
+            log('🔧 Debug tool ready', 'success');
+            log('📝 Follow the test steps above to identify the 400 error cause', 'info');
+        }, 500);
+    </script>
+</body>
+</html>

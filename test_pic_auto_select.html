@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PIC Auto-Select Test</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="config.js"></script>
+</head>
+<body class="bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-gray-200 min-h-screen p-8">
+    <div class="max-w-4xl mx-auto">
+        <h1 class="text-3xl font-bold mb-6">PIC Auto-Select & Hide Old Test</h1>
+        
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 mb-6">
+            <h2 class="text-xl font-semibold mb-4">Current User Info</h2>
+            <div id="userInfo" class="space-y-2">
+                <p class="text-gray-600 dark:text-gray-400">Loading user info...</p>
+            </div>
+        </div>
+        
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 mb-6">
+            <h2 class="text-xl font-semibold mb-4">PIC Auto-Select Test</h2>
+            <div id="picTest" class="space-y-2">
+                <p class="text-gray-600 dark:text-gray-400">Testing PIC auto-select...</p>
+            </div>
+        </div>
+        
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+            <h2 class="text-xl font-semibold mb-4">Hide Old Functionality Test</h2>
+            <div class="mb-4">
+                <label class="flex items-center">
+                    <input type="checkbox" id="testHideOld" class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 mr-2">
+                    <span>Hide old submissions (current month only)</span>
+                </label>
+            </div>
+            <div id="hideOldTest" class="space-y-2">
+                <p class="text-gray-600 dark:text-gray-400">Testing hide old functionality...</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // API Configuration
+        function getApiUrl(endpoint) {
+            const baseUrl = window.APP_CONFIG?.API_BASE_URL || '';
+            return `${baseUrl}${endpoint}`;
+        }
+
+        async function fetchWithAuth(url, options = {}) {
+            const token = localStorage.getItem('authToken');
+            const headers = {
+                'Content-Type': 'application/json',
+                ...options.headers,
+            };
+
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
+
+            const response = await fetch(url, { ...options, headers });
+
+            if (response.status === 401) {
+                localStorage.removeItem('authToken');
+                window.location.href = 'login.html';
+                throw new Error('Unauthorized');
+            }
+
+            return response;
+        }
+
+        // Test Functions
+        async function testUserInfo() {
+            const userInfo = document.getElementById('userInfo');
+            
+            try {
+                const token = localStorage.getItem('authToken');
+                if (!token) {
+                    userInfo.innerHTML = '<p class="text-red-500">❌ Not logged in</p>';
+                    return null;
+                }
+
+                const payload = JSON.parse(atob(token.split('.')[1]));
+                const userRoles = payload.roles || [];
+                const userName = payload.name;
+                const userEmail = payload.email;
+
+                userInfo.innerHTML = `
+                    <p><strong>Name:</strong> ${userName}</p>
+                    <p><strong>Email:</strong> ${userEmail}</p>
+                    <p><strong>Roles:</strong> ${userRoles.join(', ')}</p>
+                    <p><strong>Token Valid:</strong> ✅</p>
+                `;
+
+                return { userName, userRoles, userEmail };
+            } catch (error) {
+                userInfo.innerHTML = `<p class="text-red-500">❌ Error reading user info: ${error.message}</p>`;
+                return null;
+            }
+        }
+
+        async function testPicAutoSelect() {
+            const picTest = document.getElementById('picTest');
+            const results = [];
+
+            try {
+                const userInfo = await testUserInfo();
+                if (!userInfo) {
+                    picTest.innerHTML = '<p class="text-red-500">❌ Cannot test without user info</p>';
+                    return;
+                }
+
+                // Test 1: Get PIC options
+                const response = await fetchWithAuth(getApiUrl('/api/proposals/pics'));
+                if (response.ok) {
+                    const pics = await response.json();
+                    results.push(`✅ Found ${pics.length} PIC options`);
+                    
+                    // Test 2: Check if current user is in PIC list
+                    const userPic = pics.find(pic => pic.pic === userInfo.userName);
+                    if (userPic) {
+                        results.push(`✅ User ${userInfo.userName} found in PIC list with ${userPic.count} proposals`);
+                        results.push(`🎯 Auto-select should work for this user`);
+                    } else {
+                        results.push(`⚠️ User ${userInfo.userName} not found in PIC list`);
+                        results.push(`📝 Auto-select will keep "All PICs" selected`);
+                    }
+
+                    // Display all PICs
+                    results.push(`<br><strong>Available PICs:</strong>`);
+                    pics.forEach(pic => {
+                        const isCurrentUser = pic.pic === userInfo.userName;
+                        results.push(`${isCurrentUser ? '👤' : '•'} ${pic.pic} (${pic.count} proposals)${isCurrentUser ? ' ← Current User' : ''}`);
+                    });
+
+                } else if (response.status === 403) {
+                    results.push(`⚠️ User does not have permission to view PIC options (403)`);
+                    results.push(`📝 PIC filter will be hidden for this user`);
+                } else {
+                    results.push(`❌ Failed to fetch PIC options: ${response.status}`);
+                }
+
+            } catch (error) {
+                results.push(`❌ Error testing PIC auto-select: ${error.message}`);
+            }
+
+            picTest.innerHTML = results.join('<br>');
+        }
+
+        async function testHideOldFunctionality() {
+            const hideOldTest = document.getElementById('hideOldTest');
+            const results = [];
+
+            try {
+                // Get proposals
+                const response = await fetchWithAuth(getApiUrl('/api/proposals/workbench'));
+                if (!response.ok) {
+                    results.push(`❌ Failed to fetch proposals: ${response.status}`);
+                    hideOldTest.innerHTML = results.join('<br>');
+                    return;
+                }
+
+                const proposals = await response.json();
+                const submittedProposals = proposals.filter(p => p.status === 'submitted');
+                
+                results.push(`✅ Found ${proposals.length} total proposals`);
+                results.push(`📊 Found ${submittedProposals.length} submitted proposals`);
+
+                if (submittedProposals.length > 0) {
+                    const currentMonthStart = new Date();
+                    currentMonthStart.setDate(1);
+                    currentMonthStart.setHours(0,0,0,0);
+
+                    const currentMonthSubmissions = submittedProposals.filter(p => {
+                        const submittedDate = new Date(p.submission_date);
+                        return submittedDate >= currentMonthStart;
+                    });
+
+                    const oldSubmissions = submittedProposals.length - currentMonthSubmissions.length;
+
+                    results.push(`📅 Current month (${currentMonthStart.toLocaleDateString()}+): ${currentMonthSubmissions.length} submissions`);
+                    results.push(`📅 Older submissions: ${oldSubmissions}`);
+                    
+                    if (oldSubmissions > 0) {
+                        results.push(`✅ Hide old functionality should filter out ${oldSubmissions} old submissions`);
+                    } else {
+                        results.push(`ℹ️ No old submissions to hide this month`);
+                    }
+                } else {
+                    results.push(`ℹ️ No submitted proposals to test hide functionality`);
+                }
+
+            } catch (error) {
+                results.push(`❌ Error testing hide old functionality: ${error.message}`);
+            }
+
+            hideOldTest.innerHTML = results.join('<br>');
+        }
+
+        // Event Listeners
+        document.getElementById('testHideOld').addEventListener('change', (e) => {
+            const isChecked = e.target.checked;
+            const status = isChecked ? 'Hide old enabled' : 'Show all submissions';
+            document.getElementById('hideOldTest').innerHTML += `<br>🔄 ${status}`;
+        });
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', async () => {
+            await testUserInfo();
+            await testPicAutoSelect();
+            await testHideOldFunctionality();
+        });
+    </script>
+</body>
+</html> 

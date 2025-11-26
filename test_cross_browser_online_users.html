@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cross-Browser Online Users Test</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body class="min-h-screen p-6">
+    <div class="max-w-4xl mx-auto">
+        <h1 class="text-3xl font-bold mb-6">🔄 Cross-Browser Online Users Test</h1>
+        
+        <div class="bg-yellow-100 dark:bg-yellow-900 border-l-4 border-yellow-500 p-4 mb-6">
+            <div class="flex">
+                <div class="flex-shrink-0">
+                    <span class="material-icons text-yellow-600">info</span>
+                </div>
+                <div class="ml-3">
+                    <p class="text-sm text-yellow-700 dark:text-yellow-300">
+                        <strong>Testing Instructions:</strong> Open this page in multiple browsers/incognito windows with different user accounts to test the online users feature.
+                    </p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Current User Info -->
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 mb-6">
+            <h2 class="text-xl font-semibold mb-4">👤 Current User</h2>
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium mb-1">User ID:</label>
+                    <div id="currentUserId" class="text-lg font-mono bg-gray-100 dark:bg-gray-700 p-2 rounded">Loading...</div>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium mb-1">User Name:</label>
+                    <div id="currentUserName" class="text-lg font-mono bg-gray-100 dark:bg-gray-700 p-2 rounded">Loading...</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Online Users Display -->
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 mb-6">
+            <h2 class="text-xl font-semibold mb-4">👥 Online Users</h2>
+            
+            <div class="flex items-center gap-4 mb-4">
+                <div class="text-2xl font-bold text-green-600">
+                    <span id="onlineCount">0</span> users online
+                </div>
+                <div class="flex items-center gap-2">
+                    <div id="statusIndicator" class="w-3 h-3 rounded-full bg-gray-400"></div>
+                    <span id="statusText">Initializing...</span>
+                </div>
+            </div>
+            
+            <div id="onlineUsersList" class="space-y-2">
+                <!-- Users will be populated here -->
+            </div>
+        </div>
+        
+        <!-- Manual Controls -->
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 mb-6">
+            <h2 class="text-xl font-semibold mb-4">🔧 Manual Controls</h2>
+            <div class="flex gap-4">
+                <button id="manualHeartbeat" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded">
+                    Send Heartbeat Now
+                </button>
+                <button id="refreshUsers" class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded">
+                    Refresh Online Users
+                </button>
+                <button id="clearDebug" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded">
+                    Clear Debug Log
+                </button>
+            </div>
+        </div>
+        
+        <!-- Debug Log -->
+        <div class="bg-black rounded-lg p-4">
+            <h2 class="text-white text-lg font-semibold mb-4">🐛 Debug Log</h2>
+            <div id="debugLog" class="text-green-400 font-mono text-sm h-64 overflow-y-auto whitespace-pre-wrap"></div>
+        </div>
+    </div>
+
+    <script src="config.js"></script>
+    <script>
+        let debugMessages = [];
+        let currentUserId = null;
+        let heartbeatInterval = null;
+        
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = `[${timestamp}] ${type.toUpperCase()}: ${message}`;
+            debugMessages.push(logEntry);
+            
+            // Keep only last 100 messages
+            if (debugMessages.length > 100) {
+                debugMessages = debugMessages.slice(-100);
+            }
+            
+            const logElement = document.getElementById('debugLog');
+            if (logElement) {
+                logElement.textContent = debugMessages.join('\n');
+                logElement.scrollTop = logElement.scrollHeight;
+            }
+            
+            console.log(logEntry);
+        }
+        
+        function updateStatus(status, color) {
+            const indicator = document.getElementById('statusIndicator');
+            const text = document.getElementById('statusText');
+            
+            indicator.className = `w-3 h-3 rounded-full ${color}`;
+            text.textContent = status;
+        }
+        
+        function getApiUrl(endpoint) {
+            return (window.APP_CONFIG?.API_BASE_URL || '') + endpoint;
+        }
+        
+        function initializeUser() {
+            const token = localStorage.getItem('authToken');
+            if (!token) {
+                log('No authentication token found', 'error');
+                updateStatus('Not authenticated', 'bg-red-500');
+                return false;
+            }
+            
+            try {
+                const payload = JSON.parse(atob(token.split('.')[1]));
+                currentUserId = payload.id;
+                
+                document.getElementById('currentUserId').textContent = payload.id || 'Unknown';
+                document.getElementById('currentUserName').textContent = payload.name || payload.username || payload.email || 'Unknown';
+                
+                log(`User initialized: ${payload.name} (${payload.id})`, 'success');
+                updateStatus('Authenticated', 'bg-green-500');
+                return true;
+                
+            } catch (error) {
+                log(`Failed to parse token: ${error.message}`, 'error');
+                updateStatus('Invalid token', 'bg-red-500');
+                return false;
+            }
+        }
+        
+        async function sendHeartbeat() {
+            const token = localStorage.getItem('authToken');
+            if (!token) {
+                log('Cannot send heartbeat: No token', 'error');
+                return;
+            }
+            
+            try {
+                log('Sending heartbeat to server...', 'info');
+                updateStatus('Sending heartbeat...', 'bg-yellow-500');
+                
+                const response = await fetch(getApiUrl('/api/heartbeat'), {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        page: window.location.pathname,
+                        timestamp: Date.now()
+                    })
+                });
+                
+                log(`Heartbeat response: ${response.status} ${response.statusText}`, 'info');
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    log(`Heartbeat successful. Online users: ${data.totalOnline}`, 'success');
+                    
+                    updateOnlineUsers(data.onlineUsers || []);
+                    updateStatus('Connected', 'bg-green-500');
+                } else {
+                    const errorText = await response.text();
+                    log(`Heartbeat failed: ${response.status} - ${errorText}`, 'error');
+                    updateStatus('Connection error', 'bg-red-500');
+                }
+                
+            } catch (error) {
+                log(`Heartbeat error: ${error.message}`, 'error');
+                updateStatus('Network error', 'bg-red-500');
+            }
+        }
+        
+        function updateOnlineUsers(users) {
+            const listElement = document.getElementById('onlineUsersList');
+            const countElement = document.getElementById('onlineCount');
+            
+            countElement.textContent = users.length;
+            
+            listElement.innerHTML = '';
+            
+            if (users.length === 0) {
+                listElement.innerHTML = '<div class="text-gray-500 italic">No users online</div>';
+                return;
+            }
+            
+            users.forEach(user => {
+                const userDiv = document.createElement('div');
+                userDiv.className = 'flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-700 rounded';
+                
+                const isCurrentUser = user.id === currentUserId;
+                const timeAgo = Math.round((Date.now() - user.lastSeen) / 1000);
+                
+                userDiv.innerHTML = `
+                    <div class="w-2 h-2 rounded-full ${isCurrentUser ? 'bg-blue-500' : 'bg-green-500'}"></div>
+                    <div class="flex-1">
+                        <div class="font-semibold">${user.name} ${isCurrentUser ? '(You)' : ''}</div>
+                        <div class="text-sm text-gray-600 dark:text-gray-400">
+                            ID: ${user.id} | Page: ${user.page} | ${timeAgo}s ago
+                        </div>
+                    </div>
+                `;
+                
+                listElement.appendChild(userDiv);
+            });
+            
+            log(`Updated UI with ${users.length} online users`, 'info');
+        }
+        
+        function startHeartbeat() {
+            // Send initial heartbeat
+            sendHeartbeat();
+            
+            // Set up interval for every 15 seconds (faster for testing)
+            if (heartbeatInterval) {
+                clearInterval(heartbeatInterval);
+            }
+            
+            heartbeatInterval = setInterval(sendHeartbeat, 15000);
+            log('Started heartbeat interval (15 seconds)', 'info');
+        }
+        
+        function clearDebugLog() {
+            debugMessages = [];
+            document.getElementById('debugLog').textContent = '';
+            log('Debug log cleared', 'info');
+        }
+        
+        // Initialize when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            const savedTheme = localStorage.getItem('theme') || 'dark';
+            document.documentElement.classList.toggle('dark', savedTheme === 'dark');
+            
+            log('Cross-browser test page loaded', 'info');
+            
+            // Set up event listeners
+            document.getElementById('manualHeartbeat').addEventListener('click', sendHeartbeat);
+            document.getElementById('refreshUsers').addEventListener('click', sendHeartbeat);
+            document.getElementById('clearDebug').addEventListener('click', clearDebugLog);
+            
+            // Initialize user and start heartbeat
+            if (initializeUser()) {
+                startHeartbeat();
+            } else {
+                log('User initialization failed. Please log in first.', 'error');
+            }
+        });
+        
+        // Clean up interval when page unloads
+        window.addEventListener('beforeunload', function() {
+            if (heartbeatInterval) {
+                clearInterval(heartbeatInterval);
+            }
+        });
+    </script>
+</body>
+</html> 

@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Executive Dashboard Load Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background: #1a1a1a; color: #e0e0e0; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #444; border-radius: 8px; }
+        .success { background-color: rgba(72, 187, 120, 0.1); border-color: #48bb78; color: #68d391; }
+        .error { background-color: rgba(245, 101, 101, 0.1); border-color: #f56565; color: #fc8181; }
+        .info { background-color: rgba(66, 153, 225, 0.1); border-color: #4299e1; color: #63b3ed; }
+        .warning { background-color: rgba(237, 137, 54, 0.1); border-color: #ed8936; color: #f6ad55; }
+        .test-result { margin: 5px 0; padding: 8px; border-radius: 4px; font-size: 14px; }
+        pre { background: #2d2d2d; padding: 10px; border-radius: 4px; color: #e0e0e0; overflow-x: auto; }
+        button { background: #4299e1; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #3182ce; }
+        iframe { width: 100%; height: 500px; border: 1px solid #444; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <h1>Executive Dashboard Complete Load Test</h1>
+    
+    <div class="test-section">
+        <h2>Function Availability Test</h2>
+        <button onclick="runFunctionTest()">Test setupFilters and Related Functions</button>
+        <div id="functionTestResults"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Dashboard Load Test</h2>
+        <button onclick="loadDashboardIframe()">Load Executive Dashboard in iframe</button>
+        <div id="dashboardContainer"></div>
+        <div id="dashboardTestResults"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Console Output</h2>
+        <div id="consoleOutput"></div>
+    </div>
+
+    <script>
+        const consoleOutput = document.getElementById('consoleOutput');
+        const logs = [];
+        
+        // Capture console messages
+        const originalLog = console.log;
+        const originalError = console.error;
+        const originalWarn = console.warn;
+        
+        function logMessage(type, args) {
+            const message = args.map(arg => 
+                typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+            ).join(' ');
+            
+            logs.push({
+                type,
+                message,
+                timestamp: new Date().toLocaleTimeString()
+            });
+            
+            updateConsoleOutput();
+        }
+        
+        console.log = function(...args) {
+            logMessage('log', args);
+            originalLog.apply(console, args);
+        };
+        
+        console.error = function(...args) {
+            logMessage('error', args);
+            originalError.apply(console, args);
+        };
+        
+        console.warn = function(...args) {
+            logMessage('warn', args);
+            originalWarn.apply(console, args);
+        };
+        
+        function updateConsoleOutput() {
+            consoleOutput.innerHTML = logs.slice(-20).map(log => {
+                const typeClass = log.type === 'error' ? 'error' : log.type === 'warn' ? 'warning' : 'info';
+                return `<div class="${typeClass} test-result">[${log.timestamp}] ${log.type.toUpperCase()}: ${log.message}</div>`;
+            }).join('');
+        }
+        
+        function addResult(containerId, message, type = 'info') {
+            const container = document.getElementById(containerId);
+            const div = document.createElement('div');
+            div.className = `test-result ${type}`;
+            div.innerHTML = message;
+            container.appendChild(div);
+        }
+        
+        async function runFunctionTest() {
+            const container = document.getElementById('functionTestResults');
+            container.innerHTML = '';
+            
+            console.log('Starting function availability test...');
+            addResult('functionTestResults', '🔍 Testing function availability...', 'info');
+            
+            try {
+                // Load the executive dashboard script
+                const response = await fetch('executive_dashboard.js');
+                const scriptContent = await response.text();
+                
+                // Check if setupFilters function is defined in the script
+                if (scriptContent.includes('function setupFilters')) {
+                    addResult('functionTestResults', '✅ setupFilters function found in script', 'success');
+                    console.log('setupFilters function found in script');
+                } else {
+                    addResult('functionTestResults', '❌ setupFilters function not found in script', 'error');
+                    console.error('setupFilters function not found in script');
+                }
+                
+                // Check for other required functions
+                const requiredFunctions = [
+                    'setupEventHandlers',
+                    'setupPeriodControls', 
+                    'setupTableControls',
+                    'populateFilterDropdowns',
+                    'applyAutoFiltersForUser',
+                    'renderExecutiveDashboard'
+                ];
+                
+                requiredFunctions.forEach(funcName => {
+                    if (scriptContent.includes(`function ${funcName}`)) {
+                        addResult('functionTestResults', `✅ ${funcName} function found`, 'success');
+                        console.log(`${funcName} function found`);
+                    } else {
+                        addResult('functionTestResults', `❌ ${funcName} function not found`, 'error');
+                        console.error(`${funcName} function not found`);
+                    }
+                });
+                
+                // Check for the setupFilters call in DOMContentLoaded
+                if (scriptContent.includes('setupFilters()')) {
+                    addResult('functionTestResults', '✅ setupFilters() call found in initialization', 'success');
+                    console.log('setupFilters() call found');
+                } else {
+                    addResult('functionTestResults', '❌ setupFilters() call not found', 'error');
+                    console.error('setupFilters() call not found');
+                }
+                
+            } catch (error) {
+                addResult('functionTestResults', `❌ Error testing functions: ${error.message}`, 'error');
+                console.error('Error testing functions:', error);
+            }
+        }
+        
+        function loadDashboardIframe() {
+            const container = document.getElementById('dashboardContainer');
+            const resultsContainer = document.getElementById('dashboardTestResults');
+            
+            container.innerHTML = '';
+            resultsContainer.innerHTML = '';
+            
+            addResult('dashboardTestResults', '🔍 Loading executive dashboard...', 'info');
+            console.log('Loading executive dashboard in iframe...');
+            
+            const iframe = document.createElement('iframe');
+            iframe.src = 'executive_dashboard.html';
+            iframe.style.width = '100%';
+            iframe.style.height = '500px';
+            iframe.style.border = '1px solid #444';
+            iframe.style.borderRadius = '4px';
+            
+            iframe.onload = function() {
+                addResult('dashboardTestResults', '✅ Executive dashboard loaded successfully', 'success');
+                console.log('Executive dashboard loaded in iframe');
+                
+                // Try to access the iframe content and check for errors
+                try {
+                    const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+                    
+                    // Wait a bit for scripts to execute
+                    setTimeout(() => {
+                        // Check if there are any error messages in the dashboard
+                        const errorElements = iframeDoc.querySelectorAll('[style*="color:#dc2626"], .error');
+                        if (errorElements.length > 0) {
+                            addResult('dashboardTestResults', `⚠️ Found ${errorElements.length} error element(s) in dashboard`, 'warning');
+                            console.warn(`Found ${errorElements.length} error elements`);
+                        } else {
+                            addResult('dashboardTestResults', '✅ No visible errors in dashboard', 'success');
+                            console.log('No visible errors found in dashboard');
+                        }
+                        
+                        // Check if main content is visible
+                        const mainContent = iframeDoc.querySelector('.main-content, .main-container');
+                        if (mainContent && mainContent.style.display !== 'none') {
+                            addResult('dashboardTestResults', '✅ Main dashboard content is visible', 'success');
+                            console.log('Main dashboard content is visible');
+                        } else {
+                            addResult('dashboardTestResults', '❌ Main dashboard content not visible or not found', 'error');
+                            console.error('Main dashboard content not visible');
+                        }
+                        
+                    }, 2000);
+                    
+                } catch (error) {
+                    addResult('dashboardTestResults', `⚠️ Cannot access iframe content (likely due to security): ${error.message}`, 'warning');
+                    console.warn('Cannot access iframe content:', error.message);
+                }
+            };
+            
+            iframe.onerror = function() {
+                addResult('dashboardTestResults', '❌ Failed to load executive dashboard', 'error');
+                console.error('Failed to load executive dashboard');
+            };
+            
+            container.appendChild(iframe);
+        }
+        
+        // Auto-run function test on page load
+        window.addEventListener('load', () => {
+            setTimeout(runFunctionTest, 500);
+        });
+    </script>
+</body>
+</html>

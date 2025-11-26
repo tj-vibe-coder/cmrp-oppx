@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug localStorage for PowerPoint</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .debug-box { background: #f5f5f5; padding: 15px; margin: 10px 0; border-radius: 5px; }
+        .token-info { word-break: break-all; max-width: 100%; }
+        button { padding: 10px 20px; margin: 5px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+    </style>
+</head>
+<body>
+    <h1>🔍 PowerPoint Export Debug Tool</h1>
+    
+    <div class="debug-box">
+        <h3>localStorage Status</h3>
+        <div id="localStorageInfo"></div>
+    </div>
+    
+    <div class="debug-box">
+        <h3>Token Information</h3>
+        <div id="tokenInfo"></div>
+    </div>
+    
+    <div class="debug-box">
+        <h3>PowerPoint Export Test</h3>
+        <button onclick="testPowerPointExport()">Test PowerPoint Export</button>
+        <div id="testResult"></div>
+    </div>
+
+    <script>
+        function debugLocalStorage() {
+            const info = document.getElementById('localStorageInfo');
+            const keys = Object.keys(localStorage);
+            
+            info.innerHTML = `
+                <p><strong>Total items:</strong> ${keys.length}</p>
+                <p><strong>Keys:</strong> ${keys.join(', ')}</p>
+                <p><strong>Token exists:</strong> ${localStorage.getItem('token') ? 'Yes' : 'No'}</p>
+            `;
+            
+            const tokenInfo = document.getElementById('tokenInfo');
+            const token = localStorage.getItem('token');
+            
+            if (token) {
+                try {
+                    const payload = JSON.parse(atob(token.split('.')[1]));
+                    tokenInfo.innerHTML = `
+                        <p><strong>Token found!</strong></p>
+                        <p><strong>Length:</strong> ${token.length} characters</p>
+                        <p><strong>Start:</strong> ${token.substring(0, 30)}...</p>
+                        <p><strong>User info:</strong></p>
+                        <pre>${JSON.stringify(payload, null, 2)}</pre>
+                    `;
+                } catch (error) {
+                    tokenInfo.innerHTML = `
+                        <p><strong>Token found but invalid:</strong></p>
+                        <p><strong>Error:</strong> ${error.message}</p>
+                        <p><strong>Token:</strong> ${token.substring(0, 50)}...</p>
+                    `;
+                }
+            } else {
+                tokenInfo.innerHTML = '<p><strong>No token found</strong></p>';
+            }
+        }
+        
+        async function testPowerPointExport() {
+            const result = document.getElementById('testResult');
+            result.innerHTML = '<p>Testing...</p>';
+            
+            const token = localStorage.getItem('token');
+            if (!token) {
+                result.innerHTML = '<p style="color: red;">❌ No token found - please log in first</p>';
+                return;
+            }
+            
+            try {
+                // Test the presentation API
+                const response = await fetch('/api/presentation/test', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    result.innerHTML = `
+                        <p style="color: green;">✅ API Test Successful!</p>
+                        <p><strong>Message:</strong> ${data.message}</p>
+                        <p><strong>User:</strong> ${data.user}</p>
+                        <p><strong>Time:</strong> ${data.timestamp}</p>
+                    `;
+                } else {
+                    const errorText = await response.text();
+                    result.innerHTML = `
+                        <p style="color: red;">❌ API Test Failed</p>
+                        <p><strong>Status:</strong> ${response.status} ${response.statusText}</p>
+                        <p><strong>Error:</strong> ${errorText}</p>
+                    `;
+                }
+            } catch (error) {
+                result.innerHTML = `
+                    <p style="color: red;">❌ Network Error</p>
+                    <p><strong>Error:</strong> ${error.message}</p>
+                `;
+            }
+        }
+        
+        // Auto-run debug on page load
+        debugLocalStorage();
+        
+        // Refresh every 5 seconds
+        setInterval(debugLocalStorage, 5000);
+    </script>
+</body>
+</html>

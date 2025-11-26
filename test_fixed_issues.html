@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Fixed Issues</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <script src="config.js"></script>
+</head>
+<body>
+    <div class="container mx-auto p-6">
+        <h1>Test Fixed Issues</h1>
+        <p><strong>Testing the fixes for:</strong></p>
+        <ul>
+            <li>1. Filter status label updates when filters are clicked</li>
+            <li>2. Theme toggle functionality for tables</li>
+        </ul>
+
+        <!-- Theme Toggle Test -->
+        <div class="mb-6 p-4 border">
+            <h2>Theme Toggle Test</h2>
+            <button id="themeToggle" class="nav-square-btn" title="Toggle theme">
+                <span class="material-icons">light_mode</span>
+            </button>
+            <p class="mt-2 text-sm">Click the theme toggle above and observe table styling changes below.</p>
+            
+            <div class="table-responsive-wrapper mt-4">
+                <div class="table-container">
+                    <table id="testTable" class="min-w-full divide-y">
+                        <thead class="sticky-header">
+                            <tr>
+                                <th class="px-3 py-2 bg-header text-left sticky-col">Project Name</th>
+                                <th class="px-3 py-2 bg-header text-left">Status</th>
+                                <th class="px-3 py-2 bg-header text-left">Amount</th>
+                                <th class="px-3 py-2 bg-header text-left">Account Manager</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr id="row1">
+                                <td class="px-3 py-2 sticky-col">Project Alpha</td>
+                                <td class="px-3 py-2">OP100</td>
+                                <td class="px-3 py-2">$50,000</td>
+                                <td class="px-3 py-2">John Smith</td>
+                            </tr>
+                            <tr id="row2">
+                                <td class="px-3 py-2 sticky-col">Project Beta</td>
+                                <td class="px-3 py-2">OP90</td>
+                                <td class="px-3 py-2">$30,000</td>
+                                <td class="px-3 py-2">Jane Doe</td>
+                            </tr>
+                            <tr id="row3">
+                                <td class="px-3 py-2 sticky-col">Project Gamma</td>
+                                <td class="px-3 py-2">Submitted</td>
+                                <td class="px-3 py-2">$25,000</td>
+                                <td class="px-3 py-2">Bob Johnson</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Filter Status Test -->
+        <div class="mb-6 p-4 border">
+            <h2>Filter Status Test</h2>
+            <div class="mb-4">
+                <input id="searchInput" type="text" placeholder="Search projects..." class="search-input" />
+            </div>
+            
+            <div class="flex flex-wrap gap-2 items-center mb-4" id="statusFilterButtons">
+                <span class="text-sm font-medium mr-2">Filter by Status:</span>
+                <button data-filter-type="status" data-filter-value="all" class="filter-button active">All</button>
+                <button data-filter-type="status" data-filter-value="op100" class="filter-button">OP100</button>
+                <button data-filter-type="status" data-filter-value="op90" class="filter-button">OP90</button>
+                <button data-filter-type="status" data-filter-value="submitted" class="filter-button">Submitted</button>
+            </div>
+
+            <div class="flex gap-4 mb-4">
+                <div>
+                    <label for="accountMgrFilter" class="text-sm font-medium mr-1">Account Mgr:</label>
+                    <select id="accountMgrFilter" data-filter-type="accountMgr" class="filter-dropdown">
+                        <option value="all">All</option>
+                        <option value="John Smith">John Smith</option>
+                        <option value="Jane Doe">Jane Doe</option>
+                        <option value="Bob Johnson">Bob Johnson</option>
+                    </select>
+                </div>
+            </div>
+
+            <div id="rowCount" class="mt-4 text-sm p-2 border bg-gray-100">
+                <!-- This should update when filters are clicked -->
+                Filter status will appear here
+            </div>
+        </div>
+
+        <div id="console-output" class="mt-6 p-4 border">
+            <h3>Console Output:</h3>
+            <div id="console-content" class="font-mono text-sm max-h-64 overflow-y-auto"></div>
+        </div>
+    </div>
+
+    <script>
+        // Mock the same structure as the main app
+        let htmlElement;
+        let opportunities = [
+            { project_name: 'Project Alpha', opp_status: 'op100', account_mgr: 'John Smith' },
+            { project_name: 'Project Beta', opp_status: 'op90', account_mgr: 'Jane Doe' },
+            { project_name: 'Project Gamma', opp_status: 'submitted', account_mgr: 'Bob Johnson' },
+            { project_name: 'Project Delta', opp_status: 'op100', account_mgr: 'John Smith' },
+            { project_name: 'Project Echo', opp_status: 'op90', account_mgr: 'Jane Doe' }
+        ];
+
+        let searchInput;
+        let statusFilterButtonsContainer;
+        let accountMgrFilterDropdown;
+
+        function log(message) {
+            const consoleContent = document.getElementById('console-content');
+            const timestamp = new Date().toLocaleTimeString();
+            consoleContent.innerHTML += `<div>${timestamp}: ${message}</div>`;
+            consoleContent.scrollTop = consoleContent.scrollHeight;
+            console.log(message);
+        }
+
+        // Copy the improved functions from app.js
+        function getActiveFilters() {
+            const filters = {
+                search: searchInput.value.toLowerCase(),
+                status: Array.from(statusFilterButtonsContainer.querySelectorAll('.filter-button.active'))
+                    .map(btn => btn.dataset.filterValue),
+                accountMgr: accountMgrFilterDropdown.value
+            };
+            return filters;
+        }
+
+        function getActiveFiltersDescription() {
+            const filters = getActiveFilters();
+            const descriptions = [];
+            
+            // Status filter
+            if (filters.status && filters.status.length > 0 && !filters.status.includes('all')) {
+                const statusText = filters.status.map(s => s.toUpperCase()).join(', ');
+                descriptions.push(`Status: ${statusText}`);
+            }
+            
+            // Account Manager filter
+            if (filters.accountMgr && filters.accountMgr !== 'all') {
+                descriptions.push(`Account Mgr: ${filters.accountMgr}`);
+            }
+            
+            // Search filter
+            if (filters.search && filters.search.trim()) {
+                descriptions.push(`Search: "${filters.search}"`);
+            }
+            
+            return descriptions.length > 0 ? descriptions.join(', ') : '';
+        }
+
+        function updateRowCount(filteredData = null) {
+            const rowCountElement = document.getElementById('rowCount');
+            if (!rowCountElement) {
+                log('ERROR: Row count element not found');
+                return;
+            }
+            
+            let actualCount;
+            if (filteredData) {
+                actualCount = filteredData.length;
+            } else {
+                actualCount = opportunities.length;
+            }
+            
+            const totalCount = opportunities.length;
+            const activeFilters = getActiveFiltersDescription();
+            const filterText = activeFilters ? ` (${activeFilters})` : '';
+            rowCountElement.textContent = `Showing ${actualCount} of ${totalCount} opportunities${filterText}`;
+            
+            log(`Row count updated: ${actualCount} of ${totalCount}${filterText}`);
+        }
+
+        function filterAndSortData() {
+            log('filterAndSortData called');
+            const filters = getActiveFilters();
+            log(`Active filters: ${JSON.stringify(filters)}`);
+            
+            // Filter data
+            const filteredData = opportunities.filter(opp => {
+                // Search filter
+                if (filters.search) {
+                    const searchStr = filters.search.toLowerCase();
+                    const matchFound = Object.values(opp).some(value => 
+                        String(value).toLowerCase().includes(searchStr)
+                    );
+                    if (!matchFound) return false;
+                }
+
+                // Status filter
+                if (filters.status && filters.status.length > 0) {
+                    const status = filters.status[0].toLowerCase();
+                    if (status !== 'all') {
+                        const oppStatus = (opp.opp_status || '').toLowerCase();
+                        if (oppStatus !== status) return false;
+                    }
+                }
+
+                // Account Manager filter
+                if (filters.accountMgr && filters.accountMgr !== 'all' && opp.account_mgr !== filters.accountMgr) {
+                    return false;
+                }
+
+                return true;
+            });
+
+            log(`Filtered ${filteredData.length} out of ${opportunities.length} opportunities`);
+            updateRowCount(filteredData);
+        }
+
+        function applyTheme(theme) {
+            const isDark = theme === 'dark';
+            htmlElement.classList.toggle('dark', isDark);
+            
+            // Update theme toggle button icon
+            const themeToggle = document.getElementById('themeToggle');
+            const icon = themeToggle?.querySelector('.material-icons');
+            if (icon) {
+                icon.textContent = isDark ? 'dark_mode' : 'light_mode';
+            }
+            
+            // Force refresh of table styling if table exists
+            const table = document.getElementById('testTable');
+            if (table) {
+                // Trigger a repaint to ensure CSS variables are applied
+                table.style.display = 'none';
+                table.offsetHeight; // Force reflow
+                table.style.display = 'table';
+            }
+            
+            log(`Theme applied: ${theme}`);
+        }
+
+        function toggleTheme() {
+            log('toggleTheme called');
+            const currentTheme = htmlElement.classList.contains('dark') ? 'dark' : 'light';
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            applyTheme(newTheme);
+            localStorage.setItem('theme', newTheme);
+        }
+
+        function debounce(func, wait) {
+            let timeout;
+            return function executedFunction(...args) {
+                const later = () => {
+                    clearTimeout(timeout);
+                    func(...args);
+                };
+                clearTimeout(timeout);
+                timeout = setTimeout(later, wait);
+            };
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            log('DOM content loaded');
+            
+            // Initialize DOM elements
+            htmlElement = document.documentElement;
+            searchInput = document.getElementById('searchInput');
+            statusFilterButtonsContainer = document.getElementById('statusFilterButtons');
+            accountMgrFilterDropdown = document.getElementById('accountMgrFilter');
+
+            // Initialize theme
+            const savedTheme = localStorage.getItem('theme') || 'dark';
+            applyTheme(savedTheme);
+            log(`Initial theme: ${savedTheme}`);
+
+            // Set up event listeners
+            const themeToggle = document.getElementById('themeToggle');
+            if (themeToggle) {
+                themeToggle.addEventListener('click', toggleTheme);
+                log('Theme toggle listener added');
+            }
+
+            if (searchInput) {
+                searchInput.addEventListener('input', debounce(() => {
+                    log('Search input changed');
+                    filterAndSortData();
+                }, 300));
+                log('Search input listener added');
+            }
+
+            if (statusFilterButtonsContainer) {
+                statusFilterButtonsContainer.addEventListener('click', function(e) {
+                    if (e.target.matches('button.filter-button')) {
+                        log(`Filter button clicked: ${e.target.dataset.filterValue}`);
+                        
+                        // Remove active class from all buttons
+                        statusFilterButtonsContainer.querySelectorAll('.filter-button').forEach(btn => {
+                            btn.classList.remove('active');
+                        });
+                        
+                        // Add active class to clicked button
+                        e.target.classList.add('active');
+                        
+                        filterAndSortData();
+                    }
+                });
+                log('Status filter listeners added');
+            }
+
+            if (accountMgrFilterDropdown) {
+                accountMgrFilterDropdown.addEventListener('change', () => {
+                    log('Account manager filter changed');
+                    filterAndSortData();
+                });
+                log('Account manager filter listener added');
+            }
+
+            // Initial update
+            updateRowCount();
+            log('Initialization complete');
+        });
+    </script>
+</body>
+</html>

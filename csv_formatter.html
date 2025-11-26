@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CSV Formatter for opps_monitoring</title>
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+  <link rel="icon" type="image/svg+xml" href="Logo/CMRP Logo Dark.svg">
+  <link rel="alternate icon" href="Logo/CMRP Logo Light.svg">
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script src="config.js"></script>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <button onclick="window.location.href='index.html'" style="margin-bottom: 1rem; background: #e5e7eb; color: #222; border: 1px solid #d1d5db;" title="Go back to Opportunities Management">&larr; Back</button>
+    <h1>CSV Formatter for opps_monitoring</h1>
+    
+    <div id="authStatus" style="margin-bottom: 1rem; padding: 10px; border-radius: 4px;">
+      Checking authentication...
+    </div>
+    
+    <div class="upload-section">
+      <label for="csvFile">Upload CSV file:</label><br>
+      <input type="file" id="csvFile" accept=".csv" />
+      <button id="processBtn" disabled>Process & Download</button>
+      <div id="message"></div>
+    </div>
+    <a id="downloadLink" class="download-link" style="display:none;">Download formatted CSV</a>
+    
+    <div id="importSection" style="display:none; margin-top: 1rem; padding: 15px; background: #f8f9ff; border: 1px solid #e0e4ff; border-radius: 6px;">
+      <h3>📦 Database Import</h3>
+      <p>Import the processed data directly to database:</p>
+      <div style="margin: 10px 0;">
+        <label>
+          <input type="radio" name="dbTarget" value="local" checked> 
+          <strong>Local Database</strong> (postgresql://localhost:5432/cmrp_opps_db)
+        </label><br>
+        <label>
+          <input type="radio" name="dbTarget" value="production"> 
+          <strong>Production Database</strong> (Neon PostgreSQL)
+        </label>
+      </div>
+      <button id="importBtn" style="background: #10b981; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">
+        📝 Generate Import Script
+      </button>
+      <div id="importMessage" style="margin-top: 10px;"></div>
+    </div>
+    
+    <div style="margin-top: 2rem; padding: 15px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px;">
+      <h3>🔍 How UID Creation Works:</h3>
+      <ul style="margin: 10px 0; padding-left: 20px;">
+        <li><strong>Always Generate New:</strong> Creates fresh UIDs for every project in the CSV</li>
+        <li><strong>No Database Lookup:</strong> Does not check for existing projects in the database</li>
+        <li><strong>Unique IDs:</strong> Ensures every imported project gets a unique identifier</li>
+        <li><strong>Statistics:</strong> Shows count of new UIDs created after processing</li>
+      </ul>
+      <p><strong>Note:</strong> Database lookup for UID reuse has been disabled. All projects will receive new UIDs.</p>
+    </div>
+  </div>
+  <script>
+    // Schema columns in order (from database-schema.txt)
+    const schema = [
+      'encoded_date','project_name','project_code','rev','client','solutions','sol_particulars','industries','ind_particulars','date_received','client_deadline','decision','account_mgr','pic','bom','status','submitted_date','margin','final_amt','opp_status','date_awarded_lost','lost_rca','l_particulars','a','c','r','u','d','remarks_comments','uid','forecast_date'
+    ];
+    
+    // Database existing projects cache
+    let existingProjects = new Map(); // Map: project_name/project_code -> uid
+    let authToken = localStorage.getItem('authToken');
+    
+    // API Configuration
+    function getApiUrl(endpoint) {
+      if (typeof window !== 'undefined' && window.APP_CONFIG) {
+        return window.APP_CONFIG.API_BASE_URL + endpoint;
+      }
+      // Fallback for development
+      return (window.location.hostname === 'localhost' ? 'http://localhost:3000' : 'https://cmrp-opps-backend.onrender.com') + endpoint;
+    }
+    
+    // Helper: Generate UUID v4
+    function uuidv4() {
+      return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        var r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+      });
+    }
+    
+    // Helper: Load existing projects from database
+    async function loadExistingProjects() {
+      if (!authToken) {
+        document.getElementById('message').textContent = 'Please login first to access the database.';
+        return false;
+      }
+      
+      try {
+        document.getElementById('message').textContent = 'Loading existing projects from database...';
+        const response = await fetch(getApiUrl('/api/opportunities'), {
+          method: 'GET',
+          headers: { 
+            'Authorization': `Bearer ${authToken}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        if (!response.ok) {
+          if (response.status === 401) {
+            document.getElementById('message').textContent = 'Authentication failed. Please login again.';
+            localStorage.removeItem('authToken');
+            authToken = null;
+            return false;
+          }
+          throw new Error(`Database connection failed: ${response.status}`);
+        }
+        
+        const projects = await response.json();
+        existingProjects.clear();
+        
+        // Build lookup map by project_name and project_code
+        projects.forEach(project => {
+          if (project.project_name && project.uid) {
+            const key = project.project_name.toLowerCase().trim();
+            existingProjects.set(key, project.uid);
+          }
+          if (project.project_code && project.uid) {
+            const key = project.project_code.toLowerCase().trim();
+            existingProjects.set(key, project.uid);
+          }
+        });
+        
+        document.getElementById('message').textContent = `Loaded ${projects.length} existing projects from database.`;
+        return true;
+      } catch (error) {
+        console.error('Error loading existing projects:', error);
+        document.getElementById('message').textContent = `Database error: ${error.message}`;
+        return false;
+      }
+    }
+    
+    // Helper: Find existing UID for project
+    function findExistingUID(projectName, projectCode) {
+      if (projectName) {
+        const nameKey = projectName.toLowerCase().trim();
+        if (existingProjects.has(nameKey)) {
+          return existingProjects.get(nameKey);
+        }
+      }
+      
+      if (projectCode) {
+        const codeKey = projectCode.toLowerCase().trim();
+        if (existingProjects.has(codeKey)) {
+          return existingProjects.get(codeKey);
+        }
+      }
+      
+      return null;
+    }
+    // Helper: Format date to YYYY-MM-DD
+    function formatDate(val) {
+      if (!val || typeof val.toString !== 'function') return '';
+      let dateStr = val.toString().trim();
+      if (!dateStr) return '';
+
+      // Remove day names from date strings (Mon, Tue, Wed, etc.)
+      dateStr = dateStr.replace(/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun),?\s*/i, '');
+
+      const defaultYear = 2025;
+
+      let d = new Date(dateStr);
+
+      if (!isNaN(d.getTime())) { // Successfully parsed by Date constructor
+        let year = d.getFullYear();
+        const month = d.getMonth() + 1;
+        const day = d.getDate();
+
+        // Check if original string contained an explicit year
+        const has4DigitYear = /\b\d{4}\b/.test(dateStr);
+        // Matches YY in MM/DD/YY, DD/MM/YY, MM-DD-YY etc.
+        const has2DigitYear = /(?:\d{1,2}[\/\-.]){2}(\d{2})\b/.test(dateStr);
+        
+        // Special handling for clear DD/MM/YY format (only when first number > 12)
+        const ddmmyyMatch = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
+        if (ddmmyyMatch) {
+          let firstNum = parseInt(ddmmyyMatch[1]);
+          let secondNum = parseInt(ddmmyyMatch[2]);
+          let yy = parseInt(ddmmyyMatch[3]);
+          let year = yy <= 30 ? 2000 + yy : 1900 + yy;
+          
+          // Only treat as DD/MM if first number > 12 (clearly a day)
+          // Otherwise, let the normal MM/DD logic handle it
+          if (firstNum > 12 && secondNum <= 12) {
+            let day = firstNum;
+            let month = secondNum;
+            
+            const testDate = new Date(year, month - 1, day);
+            if (testDate.getFullYear() === year && testDate.getMonth() === (month - 1) && testDate.getDate() === day) {
+              return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+            }
+          }
+          // For ambiguous cases (both ≤ 12), fall through to normal Date constructor
+        }
+
+        if (!has4DigitYear && !has2DigitYear) {
+          year = defaultYear; // Override with default if no explicit year found
+        } else if (has2DigitYear && !has4DigitYear) {
+          // If only a 2-digit year was found, ensure 'year' reflects 20YY.
+          const parts = dateStr.split(/[\/\-.]/);
+          if (parts.length === 3 && parts[2].length === 2) {
+            let yPart = parseInt(parts[2]);
+            if (!isNaN(yPart) && yPart >= 0 && yPart <= 99) {
+                 // Standard interpretation: 00-68 is 20xx, 69-99 is 19xx for some systems.
+                 // Forcing 20xx for all 2-digit years for consistency here.
+                 year = 2000 + yPart;
+            }
+          }
+        }
+        
+        // Re-validate date with potentially changed year
+        const finalCheck = new Date(year, month - 1, day);
+        if (finalCheck.getFullYear() === year && finalCheck.getMonth() === (month - 1) && finalCheck.getDate() === day) {
+          return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        } else {
+          // Validation failed (e.g. Feb 29 for non-leap defaultYear from an original leap year date)
+          // Try to parse M/D from original string with the determined year
+            const parts = dateStr.split(/[\/\-.]/);
+            if (parts.length >= 2) {
+                let mInput = parseInt(parts[0]);
+                let dInput = parseInt(parts[1]);
+                // Only swap if clearly DD/MM format (first > 12, second ≤ 12)
+                if (mInput > 12 && dInput <= 12) { // DD/MM
+                    [mInput, dInput] = [dInput, mInput];
+                }
+                // Keep MM/DD for ambiguous cases (both ≤ 12)
+                const recheckDate = new Date(year, mInput - 1, dInput);
+                if (recheckDate.getFullYear() === year && recheckDate.getMonth() === mInput -1 && recheckDate.getDate() === dInput) {
+                    return `${year}-${String(mInput).padStart(2, '0')}-${String(dInput).padStart(2, '0')}`;
+                }
+            }
+          return dateStr; // Fallback if re-validation also fails
+        }
+
+      } else { // Date constructor failed, try manual parsing
+        const parts = dateStr.split(/[\/\-.]/);
+        if (parts.length === 3) {
+          let yStr, mStr, dStr;
+          if (parts[0].length === 4 && !isNaN(parseInt(parts[0]))) { // YYYY/MM/DD
+            yStr = parts[0]; mStr = parts[1]; dStr = parts[2];
+          } else if (parts[2].length === 4 && !isNaN(parseInt(parts[2]))) { // MM/DD/YYYY
+            yStr = parts[2]; mStr = parts[0]; dStr = parts[1];
+          } else if (parts[2].length === 2 && !isNaN(parseInt(parts[2]))) { // MM/DD/YY or DD/MM/YY
+            let yy = parseInt(parts[2]);
+            // Handle 2-digit years: 00-30 = 20xx, 31-99 = 19xx
+            yStr = (yy <= 30 ? 2000 + yy : 1900 + yy).toString();
+            mStr = parts[0]; dStr = parts[1];
+          } else { // No clear year pattern, assume M/D/other or D/M/other, use default year
+            yStr = defaultYear.toString(); mStr = parts[0]; dStr = parts[1];
+          }
+          
+          let year = parseInt(yStr);
+          let month = parseInt(mStr);
+          let day = parseInt(dStr);
+
+          // Only swap if first number is clearly a day (> 12) and second is clearly a month (≤ 12)
+          // This prevents swapping ambiguous dates like 8/12 (could be Aug 12 or Dec 8)
+          // Default assumption: MM/DD/YY format unless first number > 12
+          if (month > 12 && day <= 12) { // Clear DD/MM/YY format
+            [month, day] = [day, month];
+          }
+          // For ambiguous cases (both ≤ 12), keep as MM/DD/YY - no swap needed
+          
+          const finalCheck = new Date(year, month - 1, day);
+          if (finalCheck.getFullYear() === year && finalCheck.getMonth() === (month - 1) && finalCheck.getDate() === day) {
+            return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+          }
+        } else if (parts.length === 2) { // MM/DD or DD/MM, assume default year
+            let year = defaultYear;
+            let month = parseInt(parts[0]);
+            let day = parseInt(parts[1]);
+            // Only swap if clearly DD/MM format (month > 12, day ≤ 12)
+            if (month > 12 && day <= 12) { // DD/MM
+                [month, day] = [day, month];
+            }
+            // Keep MM/DD for ambiguous cases (both ≤ 12)
+            const finalCheck = new Date(year, month - 1, day);
+            if (finalCheck.getFullYear() === year && finalCheck.getMonth() === (month-1) && finalCheck.getDate() === day) {
+                return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+            }
+        }
+      }
+      return dateStr; // Fallback if all parsing fails
+    }
+    // Helper: Clean margin (remove %)
+    function cleanMargin(val) {
+      if (!val) return '';
+      const cleaned = val.toString().replace(/%/g, '').trim();
+      // Check if cleaned value is a number, if not, return empty string
+      if (cleaned !== '' && isNaN(Number(cleaned))) {
+        return '';
+      }
+      return cleaned;
+    }
+    // Helper: Clean final_amt (remove commas)
+    function cleanFinalAmt(val) {
+      if (!val) return '';
+      // Remove any non-numeric, non-dot, non-minus characters (including currency symbols and encoding artifacts)
+      const cleaned = val.toString().replace(/[^0-9.\-]/g, '').trim();
+      // Check if cleaned value is a number, if not, return empty string
+      if (cleaned !== '' && isNaN(Number(cleaned))) {
+        return '';
+      }
+      return cleaned;
+    }
+    // Helper: Remove TBI from client_deadline
+    function cleanClientDeadline(val) {
+      if (!val) return '';
+      return val.toString().replace(/TBI/gi, '').trim();
+    }
+    // Main processing
+    let parsedData = null;
+    document.getElementById('csvFile').addEventListener('change', async function(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      
+      // Database loading disabled - generating new UIDs only
+      // const loaded = await loadExistingProjects();
+      // if (!loaded) {
+      //   document.getElementById('processBtn').disabled = true;
+      //   return;
+      // }
+      
+      document.getElementById('processBtn').disabled = false;
+      document.getElementById('message').textContent = '';
+      parsedData = null;
+      Papa.parse(file, {
+        header: false, // Changed from true to false
+        skipEmptyLines: true,
+        complete: function(results) {
+          parsedData = results.data;
+          // Remove header row if it exists (first row contains column names)
+          if (parsedData.length > 0 && parsedData[0][0] && parsedData[0][0].toLowerCase().includes('encoded')) {
+            parsedData.shift(); // Remove the header row
+          }
+          document.getElementById('message').textContent = `Loaded ${parsedData.length} rows. Ready to process with new UID generation.`;
+        },
+        error: function(err) {
+          document.getElementById('message').textContent = 'Error parsing CSV: ' + err.message;
+        }
+      });
+    });
+    document.getElementById('processBtn').addEventListener('click', function() {
+      if (!parsedData) return;
+      
+      let uidReuseCount = 0;
+      let newUidCount = 0;
+      
+      // Process each row to match schema
+      const processed = parsedData.map(rowArray => { // Renamed 'row' to 'rowArray' for clarity
+        let out = {};
+        schema.forEach((colName, index) => { // Added 'index' to iterate schema
+          const value = rowArray[index]; // Access data by index
+
+          if (colName === 'uid') {
+            // ALWAYS GENERATE NEW UIDs - Database lookup disabled per request
+            // Original code that looked for existing UIDs has been commented out:
+            /*
+            const projectName = rowArray[schema.indexOf('project_name')] || '';
+            const projectCode = rowArray[schema.indexOf('project_code')] || '';
+            
+            const existingUID = findExistingUID(projectName, projectCode);
+            if (existingUID) {
+              out[colName] = existingUID;
+              uidReuseCount++;
+            } else {
+              out[colName] = uuidv4();
+              newUidCount++;
+            }
+            */
+            
+            // Always generate new UIDs regardless of existing projects
+            out[colName] = uuidv4();
+            newUidCount++;
+          } else if (colName === 'forecast_date') {
+            out[colName] = ''; // Set to blank
+          } else if (colName === 'margin') {
+            out[colName] = cleanMargin(value || '');
+          } else if (colName === 'final_amt') {
+            out[colName] = cleanFinalAmt(value || '');
+          } else if (colName === 'client_deadline') {
+            out[colName] = formatDate(cleanClientDeadline(value || ''));
+          } else if (colName.includes('date')) { // Handles encoded_date, date_received, submitted_date, date_awarded_lost
+            out[colName] = formatDate(value || '');
+          } else {
+            // Clean text data: remove problematic characters
+            let cleanValue = (value || '').toString().trim();
+            // Replace newlines with spaces
+            cleanValue = cleanValue.replace(/[\r\n]+/g, ' ');
+            // Replace multiple spaces with single space
+            cleanValue = cleanValue.replace(/\s+/g, ' ');
+            out[colName] = cleanValue;
+          }
+        });
+        return out;
+      });
+      // Convert to CSV with proper quoting
+      const csv = Papa.unparse(processed, {
+        columns: schema, 
+        header: false,
+        quotes: true,        // Force quotes around all fields
+        quoteChar: '"',      // Use double quotes
+        escapeChar: '"'      // Escape quotes with double quotes
+      });
+      // Download
+      const blob = new Blob([csv], {type: 'text/csv'});
+      const url = URL.createObjectURL(blob);
+      const link = document.getElementById('downloadLink');
+      link.href = url;
+      link.download = 'formatted_opps_monitoring.csv';
+      link.style.display = 'block';
+      link.textContent = `Download formatted CSV (${processed.length} rows)`;
+      
+      // Show statistics and import section
+      document.getElementById('message').innerHTML = `
+        <div style="margin-top: 10px; padding: 10px; background: #f0f9ff; border: 1px solid #38bdf8; border-radius: 4px;">
+          <strong>Processing Complete!</strong><br>
+          📋 Total records: ${processed.length}<br>
+          🆕 New UIDs generated: ${newUidCount}<br>
+          💾 Ready for download
+        </div>
+      `;
+      
+      // Show import section
+      document.getElementById('importSection').style.display = 'block';
+    });
+    
+    // Database import functionality
+    document.getElementById('importBtn').addEventListener('click', async function() {
+      if (!parsedData) {
+        document.getElementById('importMessage').innerHTML = '<div style="color: #dc2626;">No data to import. Please process a CSV file first.</div>';
+        return;
+      }
+      
+      const dbTarget = document.querySelector('input[name="dbTarget"]:checked').value;
+      const importBtn = document.getElementById('importBtn');
+      const importMessage = document.getElementById('importMessage');
+      
+      // Disable button during import
+      importBtn.disabled = true;
+      importBtn.textContent = '⏳ Generating Import Script...';
+      
+      try {
+        // Process data into proper format
+        const processed = parsedData.map(rowArray => {
+          let out = {};
+          schema.forEach((colName, index) => {
+            const value = rowArray[index];
+            if (colName === 'uid') {
+              out[colName] = uuidv4();
+            } else if (colName === 'forecast_date') {
+              out[colName] = '';
+            } else if (colName === 'margin') {
+              out[colName] = cleanMargin(value || '');
+            } else if (colName === 'final_amt') {
+              out[colName] = cleanFinalAmt(value || '');
+            } else if (colName === 'client_deadline') {
+              out[colName] = formatDate(cleanClientDeadline(value || ''));
+            } else if (colName.includes('date')) {
+              out[colName] = formatDate(value || '');
+            } else {
+              // Clean text data: remove problematic characters
+              let cleanValue = (value || '').toString().trim();
+              // Replace newlines with spaces
+              cleanValue = cleanValue.replace(/[\r\n]+/g, ' ');
+              // Replace multiple spaces with single space
+              cleanValue = cleanValue.replace(/\s+/g, ' ');
+              out[colName] = cleanValue;
+            }
+          });
+          return out;
+        });
+        
+        // Generate database connection string
+        const dbConnections = {
+          local: 'postgresql://localhost:5432/cmrp_opps_db',
+          production: 'postgresql://opps_management_owner:npg_Br9RoWqlTPZ0@ep-quiet-dawn-a1jwkxgx-pooler.ap-southeast-1.aws.neon.tech/opps_management?sslmode=require'
+        };
+        
+        // Create CSV content for import with proper quoting
+        const csvContent = Papa.unparse(processed, {
+          columns: schema, 
+          header: false,
+          quotes: true,        // Force quotes around all fields
+          quoteChar: '"',      // Use double quotes
+          escapeChar: '"'      // Escape quotes with double quotes
+        });
+        
+        // Generate import script
+        const importScript = `#!/bin/bash
+# Database Import Script
+# Generated: ${new Date().toISOString()}
+# Target: ${dbTarget} database
+# Records: ${processed.length}
+
+echo "Starting import to ${dbTarget} database..."
+
+# Create temporary CSV file
+cat > /tmp/import_data.csv << 'EOF'
+${csvContent}
+EOF
+
+# Import to database
+echo "Truncating existing data..."
+psql "${dbConnections[dbTarget]}" -c "TRUNCATE TABLE opps_monitoring CASCADE;"
+
+echo "Importing ${processed.length} records..."
+psql "${dbConnections[dbTarget]}" -c "\\COPY opps_monitoring(encoded_date,project_name,project_code,rev,client,solutions,sol_particulars,industries,ind_particulars,date_received,client_deadline,decision,account_mgr,pic,bom,status,submitted_date,margin,final_amt,opp_status,date_awarded_lost,lost_rca,l_particulars,a,c,r,u,d,remarks_comments,uid,forecast_date) FROM '/tmp/import_data.csv' WITH CSV;"
+
+# Verify import
+echo "Verifying import..."
+psql "${dbConnections[dbTarget]}" -c "SELECT COUNT(*) as imported_records FROM opps_monitoring;"
+
+echo "Import complete!"
+# Clean up
+rm -f /tmp/import_data.csv
+`;
+
+        // Download the import script
+        const scriptBlob = new Blob([importScript], {type: 'text/plain'});
+        const scriptUrl = URL.createObjectURL(scriptBlob);
+        
+        // Create download link for script
+        const scriptLink = document.createElement('a');
+        scriptLink.href = scriptUrl;
+        scriptLink.download = `import_to_${dbTarget}_db.sh`;
+        scriptLink.style.display = 'none';
+        document.body.appendChild(scriptLink);
+        scriptLink.click();
+        document.body.removeChild(scriptLink);
+        
+        importMessage.innerHTML = `
+          <div style="color: #166534; background: #f0fdf4; padding: 10px; border: 1px solid #bbf7d0; border-radius: 4px;">
+            ✅ <strong>Import Script Generated!</strong><br>
+            📄 Downloaded: import_to_${dbTarget}_db.sh<br>
+            📊 ${processed.length} records ready for import<br><br>
+            <strong>To import:</strong><br>
+            1. Open Terminal<br>
+            2. Run: chmod +x import_to_${dbTarget}_db.sh<br>
+            3. Run: ./import_to_${dbTarget}_db.sh
+          </div>
+        `;
+        
+      } catch (error) {
+        console.error('Import error:', error);
+        importMessage.innerHTML = `
+          <div style="color: #dc2626; background: #fef2f2; padding: 10px; border: 1px solid #fecaca; border-radius: 4px;">
+            ❌ <strong>Script Generation Failed!</strong><br>
+            ${error.message}
+          </div>
+        `;
+      } finally {
+        // Re-enable button
+        importBtn.disabled = false;
+        importBtn.textContent = '📝 Generate Import Script';
+      }
+    });
+    
+    // Initialize page - check authentication status
+    document.addEventListener('DOMContentLoaded', function() {
+      checkAuthenticationStatus();
+    });
+    
+    function checkAuthenticationStatus() {
+      const authStatusDiv = document.getElementById('authStatus');
+      authToken = localStorage.getItem('authToken');
+      
+      if (!authToken) {
+        authStatusDiv.innerHTML = `
+          <div style="background: #fef2f2; color: #dc2626; border: 1px solid #fecaca;">
+            ❌ <strong>Not authenticated.</strong> Please <a href="index.html" style="color: #dc2626; text-decoration: underline;">login</a> first to access database UID lookup.
+          </div>
+        `;
+        document.getElementById('csvFile').disabled = true;
+        return;
+      }
+      
+      authStatusDiv.innerHTML = `
+        <div style="background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0;">
+          ✅ <strong>Authenticated.</strong> Database UID lookup is available.
+        </div>
+      `;
+    }
+  </script>
+</body>
+</html>

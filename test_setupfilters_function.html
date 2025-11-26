@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Executive Dashboard Function Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
+        .pass { color: green; }
+        .fail { color: red; }
+        .info { color: blue; }
+        pre { background: #f5f5f5; padding: 10px; border-radius: 3px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>Executive Dashboard setupFilters Test</h1>
+    
+    <div class="test-section">
+        <h2>Test Results</h2>
+        <div id="results"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>Console Logs</h2>
+        <pre id="console-logs"></pre>
+    </div>
+
+    <script>
+        const results = document.getElementById('results');
+        const consoleLogs = document.getElementById('console-logs');
+        
+        // Capture console logs
+        const originalLog = console.log;
+        const originalError = console.error;
+        const logs = [];
+        
+        console.log = function(...args) {
+            logs.push(['LOG', ...args]);
+            updateConsoleLogs();
+            originalLog.apply(console, arguments);
+        };
+        
+        console.error = function(...args) {
+            logs.push(['ERROR', ...args]);
+            updateConsoleLogs();
+            originalError.apply(console, arguments);
+        };
+        
+        function updateConsoleLogs() {
+            consoleLogs.textContent = logs.map(log => `[${log[0]}] ${log.slice(1).join(' ')}`).join('\n');
+        }
+        
+        function addResult(message, type = 'info') {
+            const div = document.createElement('div');
+            div.className = type;
+            div.innerHTML = message;
+            results.appendChild(div);
+        }
+
+        async function testSetupFilters() {
+            addResult('<h3>Testing setupFilters Function</h3>');
+            
+            // Test 1: Load and parse the executive dashboard script
+            try {
+                const response = await fetch('/executive_dashboard.js');
+                const scriptContent = await response.text();
+                
+                // Look for the setupFilters function definition
+                const setupFiltersMatch = scriptContent.match(/function setupFilters\(\)\s*{[\s\S]*?^}/m);
+                if (setupFiltersMatch) {
+                    addResult('✓ setupFilters function found and extracted', 'pass');
+                    
+                    // Create mock DOM elements
+                    document.body.innerHTML += `
+                        <select id="solutionFilter"></select>
+                        <select id="accountMgrFilter"></select>
+                        <button id="clearFilters">Clear Filters</button>
+                    `;
+                    
+                    // Create mock global variables that setupFilters expects
+                    window.currentFilters = { solution: '', accountMgr: '' };
+                    window.dashboardDataCache = null;
+                    
+                    // Mock function that setupFilters might call
+                    window.renderExecutiveDashboard = function(data) {
+                        console.log('Mock renderExecutiveDashboard called with:', data ? 'data' : 'no data');
+                    };
+                    
+                    // Execute the setupFilters function by evaluating it
+                    try {
+                        // Extract and execute the function
+                        eval(setupFiltersMatch[0]);
+                        
+                        // Call setupFilters
+                        setupFilters();
+                        
+                        addResult('✓ setupFilters function executed without errors', 'pass');
+                        
+                        // Test event handlers
+                        const solutionFilter = document.getElementById('solutionFilter');
+                        const accountMgrFilter = document.getElementById('accountMgrFilter');
+                        const clearFiltersBtn = document.getElementById('clearFilters');
+                        
+                        if (solutionFilter && solutionFilter.onchange) {
+                            addResult('✓ Solution filter event handler attached', 'pass');
+                        } else {
+                            addResult('✗ Solution filter event handler not attached', 'fail');
+                        }
+                        
+                        if (accountMgrFilter && accountMgrFilter.onchange) {
+                            addResult('✓ Account manager filter event handler attached', 'pass');
+                        } else {
+                            addResult('✗ Account manager filter event handler not attached', 'fail');
+                        }
+                        
+                        if (clearFiltersBtn && clearFiltersBtn.onclick) {
+                            addResult('✓ Clear filters button event handler attached', 'pass');
+                        } else {
+                            addResult('✗ Clear filters button event handler not attached', 'fail');
+                        }
+                        
+                        // Test filter functionality
+                        solutionFilter.value = 'test-solution';
+                        solutionFilter.dispatchEvent(new Event('change'));
+                        
+                        if (window.currentFilters.solution === 'test-solution') {
+                            addResult('✓ Solution filter updates currentFilters correctly', 'pass');
+                        } else {
+                            addResult('✗ Solution filter does not update currentFilters', 'fail');
+                        }
+                        
+                        // Test clear filters
+                        clearFiltersBtn.click();
+                        
+                        if (window.currentFilters.solution === '' && window.currentFilters.accountMgr === '') {
+                            addResult('✓ Clear filters button resets currentFilters correctly', 'pass');
+                        } else {
+                            addResult('✗ Clear filters button does not reset currentFilters', 'fail');
+                        }
+                        
+                    } catch (execError) {
+                        addResult(`✗ Error executing setupFilters: ${execError.message}`, 'fail');
+                        console.error('setupFilters execution error:', execError);
+                    }
+                    
+                } else {
+                    addResult('✗ setupFilters function not found in script', 'fail');
+                }
+                
+            } catch (error) {
+                addResult(`✗ Error loading executive_dashboard.js: ${error.message}`, 'fail');
+                console.error('Script loading error:', error);
+            }
+            
+            addResult('<h3>Test Completed</h3>');
+        }
+
+        // Run the test
+        testSetupFilters();
+    </script>
+</body>
+</html>

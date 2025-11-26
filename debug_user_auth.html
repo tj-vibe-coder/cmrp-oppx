@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>User Token Debug</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background: #f5f5f5; }
+        .container { max-width: 800px; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .debug-section { margin: 20px 0; padding: 15px; background: #f8f9fa; border-radius: 4px; }
+        .token-payload { background: #e7f3ff; padding: 10px; border-radius: 4px; white-space: pre-wrap; font-family: monospace; }
+        button { background: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; margin: 5px; }
+        button:hover { background: #0056b3; }
+        .error { color: #dc3545; background: #f8d7da; padding: 10px; border-radius: 4px; }
+        .success { color: #155724; background: #d4edda; padding: 10px; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>User Authentication Debug</h1>
+        
+        <div class="debug-section">
+            <h3>Current Token Info</h3>
+            <div id="tokenInfo"></div>
+        </div>
+
+        <div class="debug-section">
+            <h3>Test API Calls</h3>
+            <button onclick="testUsersAPI()">Test /api/users (Admin Required)</button>
+            <button onclick="testAuditEndpoint()">Test /api/audit-log-page-access</button>
+            <button onclick="testLogin()">Test Login</button>
+            <button onclick="clearToken()">Clear Token</button>
+            <div id="apiResults"></div>
+        </div>
+
+        <div class="debug-section">
+            <h3>Quick Login Form</h3>
+            <form id="loginForm">
+                <div style="margin: 10px 0;">
+                    <label>Email: </label>
+                    <input type="email" id="email" value="reuel.rivera@cmrpautomation.com" style="padding: 5px; width: 200px;">
+                </div>
+                <div style="margin: 10px 0;">
+                    <label>Password: </label>
+                    <input type="password" id="password" value="cmrp0601" style="padding: 5px; width: 200px;">
+                </div>
+                <button type="submit">Login</button>
+            </form>
+            <div id="loginResults"></div>
+        </div>
+    </div>
+
+    <script>
+        function getApiUrl(endpoint) {
+            return (window.location.hostname === 'localhost' ? 'http://localhost:3000' : 'https://cmrp-opps-backend.onrender.com') + endpoint;
+        }
+
+        function displayTokenInfo() {
+            const token = localStorage.getItem('authToken');
+            const tokenInfoDiv = document.getElementById('tokenInfo');
+            
+            if (!token) {
+                tokenInfoDiv.innerHTML = '<div class="error">No auth token found</div>';
+                return;
+            }
+
+            try {
+                const payload = JSON.parse(atob(token.split('.')[1]));
+                tokenInfoDiv.innerHTML = `
+                    <div class="success">Token found and decoded successfully!</div>
+                    <div class="token-payload">${JSON.stringify(payload, null, 2)}</div>
+                `;
+            } catch (error) {
+                tokenInfoDiv.innerHTML = `<div class="error">Error decoding token: ${error.message}</div>`;
+            }
+        }
+
+        async function testUsersAPI() {
+            const resultsDiv = document.getElementById('apiResults');
+            const token = localStorage.getItem('authToken');
+            
+            if (!token) {
+                resultsDiv.innerHTML = '<div class="error">No token available for API test</div>';
+                return;
+            }
+
+            try {
+                const response = await fetch(getApiUrl('/api/users'), {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+
+                const result = await response.text();
+                
+                if (response.ok) {
+                    resultsDiv.innerHTML = `<div class="success">API call successful! Response: ${result}</div>`;
+                } else {
+                    resultsDiv.innerHTML = `<div class="error">API call failed (${response.status}): ${result}</div>`;
+                }
+            } catch (error) {
+                resultsDiv.innerHTML = `<div class="error">Network error: ${error.message}</div>`;
+            }
+        }
+
+        async function testAuditEndpoint() {
+            const resultsDiv = document.getElementById('apiResults');
+            const token = localStorage.getItem('authToken');
+            
+            if (!token) {
+                resultsDiv.innerHTML = '<div class="error">No token available for audit API test</div>';
+                return;
+            }
+
+            try {
+                const response = await fetch(getApiUrl('/api/audit-log-page-access'), {
+                    method: 'POST',
+                    headers: { 
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify({ page: 'debug_test' })
+                });
+
+                const result = await response.text();
+                
+                resultsDiv.innerHTML = `
+                    <div class="${response.ok ? 'success' : 'error'}">
+                        <strong>Audit API Test Result:</strong><br>
+                        Status: ${response.status} ${response.statusText}<br>
+                        Response: ${result}
+                    </div>
+                `;
+
+                if (response.status === 401) {
+                    resultsDiv.innerHTML += '<div class="error">⚠️ 401 Unauthorized - This is why the auth modal appears!</div>';
+                } else if (response.status === 403) {
+                    resultsDiv.innerHTML += '<div class="error">⚠️ 403 Forbidden - User is not admin!</div>';
+                } else if (response.ok) {
+                    resultsDiv.innerHTML += '<div class="success">✅ Success - User has admin access!</div>';
+                }
+
+            } catch (error) {
+                resultsDiv.innerHTML = `<div class="error">Network error testing audit endpoint: ${error.message}</div>`;
+            }
+        }
+
+        async function testLogin() {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const resultsDiv = document.getElementById('loginResults');
+
+            try {
+                const response = await fetch(getApiUrl('/api/login'), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                });
+
+                const data = await response.json();
+                
+                if (response.ok) {
+                    localStorage.setItem('authToken', data.token);
+                    resultsDiv.innerHTML = '<div class="success">Login successful! Token saved.</div>';
+                    displayTokenInfo();
+                } else {
+                    resultsDiv.innerHTML = `<div class="error">Login failed: ${data.error || 'Unknown error'}</div>`;
+                }
+            } catch (error) {
+                resultsDiv.innerHTML = `<div class="error">Login error: ${error.message}</div>`;
+            }
+        }
+
+        function clearToken() {
+            localStorage.removeItem('authToken');
+            displayTokenInfo();
+            document.getElementById('apiResults').innerHTML = '';
+            document.getElementById('loginResults').innerHTML = '<div class="success">Token cleared</div>';
+        }
+
+        document.getElementById('loginForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            testLogin();
+        });
+
+        // Initialize
+        displayTokenInfo();
+    </script>
+</body>
+</html>

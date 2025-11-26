@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Authentication Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .result { padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .success { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .info { background-color: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+        button { padding: 10px 20px; margin: 5px; }
+    </style>
+</head>
+<body>
+    <h1>Win-Loss Dashboard Authentication Test</h1>
+    
+    <div id="results"></div>
+    
+    <h2>Test Controls</h2>
+    <button onclick="testAuthFunctions()">Test Authentication Functions</button>
+    <button onclick="testLogin()">Test Login Flow</button>
+    <button onclick="testLogout()">Test Logout</button>
+    <button onclick="clearResults()">Clear Results</button>
+    
+    <script>
+        function addResult(message, type = 'info') {
+            const resultsDiv = document.getElementById('results');
+            const resultDiv = document.createElement('div');
+            resultDiv.className = `result ${type}`;
+            resultDiv.textContent = message;
+            resultsDiv.appendChild(resultDiv);
+        }
+        
+        function clearResults() {
+            document.getElementById('results').innerHTML = '';
+        }
+        
+        function testAuthFunctions() {
+            addResult('Testing authentication functions...', 'info');
+            
+            // Test if functions exist
+            try {
+                // Load the win-loss dashboard script to test
+                const script = document.createElement('script');
+                script.src = 'win-loss_dashboard.js';
+                script.onload = function() {
+                    try {
+                        // Test isAuthenticated function
+                        if (typeof isAuthenticated === 'function') {
+                            addResult('✓ isAuthenticated function exists', 'success');
+                            const authStatus = isAuthenticated();
+                            addResult(`isAuthenticated() returns: ${authStatus}`, 'info');
+                        } else {
+                            addResult('✗ isAuthenticated function missing', 'error');
+                        }
+                        
+                        // Test updateUserMgmtNavVisibility function
+                        if (typeof updateUserMgmtNavVisibility === 'function') {
+                            addResult('✓ updateUserMgmtNavVisibility function exists', 'success');
+                        } else {
+                            addResult('✗ updateUserMgmtNavVisibility function missing', 'error');
+                        }
+                        
+                        // Test afterLoginSuccess function
+                        if (typeof afterLoginSuccess === 'function') {
+                            addResult('✓ afterLoginSuccess function exists', 'success');
+                        } else {
+                            addResult('✗ afterLoginSuccess function missing', 'error');
+                        }
+                        
+                        // Test updateChangePasswordBtnVisibility function
+                        if (typeof updateChangePasswordBtnVisibility === 'function') {
+                            addResult('✓ updateChangePasswordBtnVisibility function exists', 'success');
+                        } else {
+                            addResult('✗ updateChangePasswordBtnVisibility function missing', 'error');
+                        }
+                        
+                    } catch (error) {
+                        addResult(`Error testing functions: ${error.message}`, 'error');
+                    }
+                };
+                script.onerror = function() {
+                    addResult('Error loading win-loss_dashboard.js', 'error');
+                };
+                document.head.appendChild(script);
+                
+            } catch (error) {
+                addResult(`Error: ${error.message}`, 'error');
+            }
+        }
+        
+        function testLogin() {
+            addResult('Testing login flow...', 'info');
+            
+            // Set a test token
+            localStorage.setItem('authToken', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6InRlc3RAZXhhbXBsZS5jb20iLCJhY2NvdW50VHlwZSI6IkFkbWluIiwiaWF0IjoxNjQ3MzU2NDAwfQ.test');
+            
+            addResult('✓ Test auth token set', 'success');
+            
+            // Test authentication
+            if (typeof isAuthenticated === 'function') {
+                const authStatus = isAuthenticated();
+                addResult(`Authentication status: ${authStatus}`, authStatus ? 'success' : 'error');
+            }
+        }
+        
+        function testLogout() {
+            addResult('Testing logout flow...', 'info');
+            
+            // Remove auth token
+            localStorage.removeItem('authToken');
+            
+            addResult('✓ Auth token removed', 'success');
+            
+            // Test authentication
+            if (typeof isAuthenticated === 'function') {
+                const authStatus = isAuthenticated();
+                addResult(`Authentication status: ${authStatus}`, !authStatus ? 'success' : 'error');
+            }
+        }
+    </script>
+</body>
+</html>

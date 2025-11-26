@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Revision History Fix</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background: #f9f9f9;
+        }
+        .success { color: #28a745; font-weight: bold; }
+        .error { color: #dc3545; font-weight: bold; }
+        .info { color: #007bff; font-weight: bold; }
+        .warning { color: #ffc107; font-weight: bold; }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background: #0056b3; }
+        pre {
+            background: #333;
+            color: #0f0;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-size: 12px;
+        }
+        .step {
+            margin: 10px 0;
+            padding: 10px;
+            background: #e9ecef;
+            border-left: 4px solid #007bff;
+        }
+        #testLog {
+            height: 300px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            padding: 10px;
+            background: #f8f9fa;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 Revision History Fix - Test & Verification</h1>
+        
+        <div class="test-section">
+            <h2>📋 Issue & Fix Summary</h2>
+            <p><strong>Problem:</strong> Revision history showing "General update" with no specific field information.</p>
+            <p><strong>Root Cause:</strong> Server was storing full snapshots instead of actual changed fields.</p>
+            <p><strong>Fix Applied:</strong> Enhanced server-side tracking to record specific field changes with old/new values.</p>
+        </div>
+
+        <div class="test-section">
+            <h2>🛠️ Technical Changes Made</h2>
+            
+            <h3>Server-side (server.js):</h3>
+            <ul>
+                <li>✅ Enhanced field change tracking in PUT `/api/opportunities/:uid` endpoint</li>
+                <li>✅ Compare old vs new values for each updated field</li>
+                <li>✅ Store actual changed fields with old/new values in `changed_fields` column</li>
+                <li>✅ Improved revision history data structure</li>
+            </ul>
+            
+            <h3>Client-side (app.js):</h3>
+            <ul>
+                <li>✅ Updated `loadRevisionHistory()` function to handle enhanced field tracking</li>
+                <li>✅ Display actual old and new values instead of generic "Previous value"</li>
+                <li>✅ Support both legacy and new revision data formats</li>
+                <li>✅ Better field name formatting and value display</li>
+            </ul>
+        </div>
+
+        <div class="test-section">
+            <h2>🧪 Testing Instructions</h2>
+            
+            <div class="step">
+                <strong>Step 1:</strong> Open the main application
+                <button onclick="openMainApp()">🚀 Open Main App</button>
+            </div>
+            
+            <div class="step">
+                <strong>Step 2:</strong> Log in to the application if needed
+            </div>
+            
+            <div class="step">
+                <strong>Step 3:</strong> Find any opportunity in the table and edit it:
+                <ol>
+                    <li>Double-click on any editable field (like Project Name, Client, Status)</li>
+                    <li>Or click the "Edit" button to open the full edit modal</li>
+                    <li>Make a change to one or more fields</li>
+                    <li>Save the changes</li>
+                </ol>
+            </div>
+            
+            <div class="step">
+                <strong>Step 4:</strong> Check the revision history:
+                <ol>
+                    <li>Click the "History" button (📋 icon) for the opportunity you just edited</li>
+                    <li>The revision history modal should open</li>
+                    <li><strong>Expected:</strong> You should now see specific field names, old values, and new values</li>
+                    <li><strong>Before fix:</strong> Would show "General update" with "-" for old/new values</li>
+                    <li><strong>After fix:</strong> Shows actual field names like "Project Name", "Status", etc. with real old→new values</li>
+                </ol>
+            </div>
+        </div>
+
+        <div class="test-section">
+            <h2>✅ Expected Results</h2>
+            <div class="success">After the fix, revision history should show:</div>
+            <ul>
+                <li>✅ <strong>Specific field names</strong> (e.g., "Project Name", "Status", "Client")</li>
+                <li>✅ <strong>Actual old values</strong> (what the field contained before the change)</li>
+                <li>✅ <strong>Actual new values</strong> (what the field contains after the change)</li>
+                <li>✅ <strong>Multiple field changes</strong> listed separately if multiple fields were updated</li>
+                <li>✅ <strong>Proper formatting</strong> of field names and values</li>
+            </ul>
+            
+            <div class="info">Example of improved revision history display:</div>
+            <pre>
+Revision #  | Changed By | Changed At          | Field         | Old Value    | New Value
+1          | John Smith | 6/9/2025, 2:30:45 PM| Project Name  | Old Project  | New Project
+↳          | ↳          | ↳                   | Status        | Active       | On Hold
+↳          | ↳          | ↳                   | Client        | ABC Corp     | XYZ Inc
+            </pre>
+        </div>
+
+        <div class="test-section">
+            <h2>🔧 Advanced Testing</h2>
+            <p>For more thorough testing:</p>
+            <ol>
+                <li><strong>Test inline editing:</strong> Double-click different types of fields (text, dropdowns, dates)</li>
+                <li><strong>Test modal editing:</strong> Use the Edit button to change multiple fields at once</li>
+                <li><strong>Test field types:</strong> Try editing various field types like Project Name, Status, Client, Amount, etc.</li>
+                <li><strong>Test multiple revisions:</strong> Make several changes to the same opportunity and check that all revisions are properly tracked</li>
+            </ol>
+        </div>
+
+        <div class="test-section">
+            <h2>📊 Test Results Log</h2>
+            <div id="testLog"></div>
+            <button onclick="clearLog()">🗑️ Clear Log</button>
+        </div>
+
+        <div class="test-section">
+            <h2>🔧 Troubleshooting</h2>
+            <p><strong>If revision history still shows "General update":</strong></p>
+            <ul>
+                <li>Check that the server restarted with the new code</li>
+                <li>Try making a new edit (old revisions may still have the old format)</li>
+                <li>Check browser console for any JavaScript errors</li>
+                <li>Verify the server logs show the enhanced field tracking</li>
+            </ul>
+            
+            <p><strong>Server log indicators of working fix:</strong></p>
+            <pre>
+[PUT /api/opportunities/XXX] Actual Changed Fields: {"field_name":{"old":"old_value","new":"new_value"}}
+            </pre>
+        </div>
+    </div>
+
+    <script>
+        function log(message, type = 'info') {
+            const logDiv = document.getElementById('testLog');
+            const timestamp = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.className = type;
+            entry.innerHTML = `[${timestamp}] ${message}`;
+            logDiv.appendChild(entry);
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        function clearLog() {
+            document.getElementById('testLog').innerHTML = '';
+        }
+
+        function openMainApp() {
+            window.open('http://localhost:3000', '_blank');
+            log('🚀 Main application opened! Now test the revision history by editing an opportunity and checking its history.', 'info');
+            log('📝 Remember: Look for specific field names and actual old→new values instead of "General update".', 'success');
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            log('🔧 Revision History Fix Test Page loaded', 'info');
+            log('📋 Enhanced field tracking is now active. Test by editing opportunities and checking their revision history.', 'success');
+        });
+    </script>
+</body>
+</html>

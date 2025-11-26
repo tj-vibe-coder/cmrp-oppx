@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Win-Loss Final Fix Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; transition: all 0.3s; }
+        body.dark { background: #1f2937; color: #f9fafb; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; border-radius: 5px; }
+        .dark .test-section { border-color: #4b5563; background: #374151; }
+        .success { color: #10b981; font-weight: bold; }
+        .error { color: #ef4444; font-weight: bold; }
+        .info { color: #3b82f6; }
+        .warning { color: #f59e0b; }
+        button { margin: 5px; padding: 8px 12px; cursor: pointer; border: 1px solid #ccc; background: white; }
+        .dark button { background: #4b5563; color: white; border-color: #6b7280; }
+        .log { background: #f5f5f5; padding: 10px; margin: 10px 0; font-family: monospace; max-height: 300px; overflow-y: auto; border-radius: 4px; }
+        .dark .log { background: #1f2937; border: 1px solid #4b5563; }
+        select { margin: 5px; padding: 5px; }
+        .dark select { background: #374151; color: white; border-color: #6b7280; }
+        .status-indicator { padding: 10px; margin: 10px 0; border-radius: 4px; font-weight: bold; }
+        .status-success { background: #d1fae5; color: #065f46; }
+        .dark .status-success { background: #064e3b; color: #6ee7b7; }
+        .status-error { background: #fee2e2; color: #991b1b; }
+        .dark .status-error { background: #7f1d1d; color: #fca5a5; }
+        
+        /* Theme toggle button styles */
+        .theme-toggle { position: fixed; top: 20px; right: 20px; z-index: 1000; }
+    </style>
+</head>
+<body>
+    <button class="theme-toggle" onclick="toggleTheme()">🌓 Toggle Theme</button>
+    
+    <h1>Win-Loss Dashboard - Final Fix Verification</h1>
+    
+    <div id="theme-status" class="status-indicator"></div>
+    
+    <div class="test-section">
+        <h3>1. Settings Save/Load/Restore Test</h3>
+        <div>
+            <button onclick="runFullSettingsTest()">Run Full Settings Test</button>
+            <button onclick="clearAllSettings()">Clear All Settings</button>
+        </div>
+        <div id="settings-test-results"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>2. Dropdown Value Validation Test</h3>
+        <div>
+            <label>Test Solution:</label>
+            <select id="testSolutionFilter">
+                <option value="all">All Solutions</option>
+                <option value="Data Analytics">Data Analytics</option>
+                <option value="Cloud Solutions">Cloud Solutions</option>
+                <option value="AI/ML">AI/ML</option>
+            </select>
+            
+            <label>Test Account Manager:</label>
+            <select id="testAccountMgrFilter">
+                <option value="all">All</option>
+                <option value="John Doe">John Doe</option>
+                <option value="Jane Smith">Jane Smith</option>
+                <option value="Bob Wilson">Bob Wilson</option>
+            </select>
+        </div>
+        <div>
+            <button onclick="testDropdownValidation()">Test Dropdown Validation</button>
+            <button onclick="testInvalidValues()">Test Invalid Values</button>
+        </div>
+        <div id="dropdown-validation-results"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>3. Theme Persistence Test</h3>
+        <div>
+            <button onclick="testThemePersistence()">Test Theme Persistence</button>
+            <button onclick="simulatePageNavigation()">Simulate Page Navigation</button>
+        </div>
+        <div id="theme-test-results"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>4. Complete Integration Test</h3>
+        <div>
+            <button onclick="runCompleteIntegrationTest()">Run Complete Test</button>
+        </div>
+        <div id="integration-test-results"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>Debug Console</h3>
+        <div id="debug-log" class="log"></div>
+        <button onclick="clearLog()">Clear Log</button>
+    </div>
+
+    <script>
+        // Exact settings functions from win-loss_dashboard.js
+        const SETTINGS_KEY = 'winLossDashboardSettings';
+
+        // Global state variables
+        let currentSolutionFilter = 'all';
+        let currentAccountMgrFilter = 'all';
+        let currentClientFilter = 'all';
+        let activeQuarters = { '1': true, '2': true, '3': false, '4': false };
+        let currentTableStatusFilter = 'OP100';
+        let currentSort = { col: null, dir: 1 };
+
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const logDiv = document.getElementById('debug-log');
+            const entry = document.createElement('div');
+            entry.innerHTML = `<span style="color: #666">[${timestamp}]</span> <span class="${type}">${message}</span>`;
+            logDiv.appendChild(entry);
+            logDiv.scrollTop = logDiv.scrollHeight;
+            console.log(message);
+        }
+
+        function clearLog() {
+            document.getElementById('debug-log').innerHTML = '';
+        }
+
+        function updateThemeStatus() {
+            const isDark = document.documentElement.classList.contains('dark') || document.body.classList.contains('dark');
+            const statusDiv = document.getElementById('theme-status');
+            statusDiv.textContent = `Current Theme: ${isDark ? 'Dark' : 'Light'} Mode`;
+            statusDiv.className = `status-indicator status-success`;
+        }
+
+        // Exact saveSettings function
+        function saveSettings() {
+            const settings = {
+                currentSolutionFilter,
+                currentAccountMgrFilter,
+                currentClientFilter,
+                activeQuarters,
+                currentTableStatusFilter,
+                currentSort,
+                theme: document.documentElement.classList.contains('dark') ? 'dark' : 'light'
+            };
+            localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+            log(`[SETTINGS] Saved: ${JSON.stringify(settings)}`, 'success');
+            return settings;
+        }
+
+        // Exact loadSettings function
+        function loadSettings() {
+            try {
+                const saved = localStorage.getItem(SETTINGS_KEY);
+                if (saved) {
+                    const settings = JSON.parse(saved);
+                    log(`[SETTINGS] Loaded: ${JSON.stringify(settings)}`, 'success');
+                    
+                    // Restore filter states
+                    if (settings.currentSolutionFilter !== undefined) {
+                        currentSolutionFilter = settings.currentSolutionFilter;
+                    }
+                    if (settings.currentAccountMgrFilter !== undefined) {
+                        currentAccountMgrFilter = settings.currentAccountMgrFilter;
+                    }
+                    if (settings.currentClientFilter !== undefined) {
+                        currentClientFilter = settings.currentClientFilter;
+                    }
+                    if (settings.activeQuarters !== undefined) {
+                        activeQuarters = settings.activeQuarters;
+                    }
+                    if (settings.currentTableStatusFilter !== undefined) {
+                        currentTableStatusFilter = settings.currentTableStatusFilter;
+                    }
+                    if (settings.currentSort !== undefined) {
+                        currentSort = settings.currentSort;
+                    }
+                    
+                    return settings;
+                }
+            } catch (error) {
+                log(`[SETTINGS] Error loading: ${error.message}`, 'error');
+                return null;
+            }
+            return null;
+        }
+
+        // Enhanced applyTheme function
+        function applyTheme(theme) {
+            const isDark = theme === 'dark';
+            document.documentElement.classList.toggle('dark', isDark);
+            document.body.classList.toggle('dark', isDark);
+            
+            // Update both theme storage locations for compatibility
+            localStorage.setItem('theme', isDark ? 'dark' : 'light');
+            
+            log(`[THEME] Applied theme: ${theme}, isDark: ${isDark}`, 'info');
+            updateThemeStatus();
+        }
+
+        function toggleTheme() {
+            const currentTheme = document.documentElement.classList.contains('dark') ? 'dark' : 'light';
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            applyTheme(newTheme);
+            saveSettings();
+        }
+
+        // Simulate dropdown population with validation
+        function populateTestDropdowns() {
+            const solutionDropdown = document.getElementById('testSolutionFilter');
+            const mgrDropdown = document.getElementById('testAccountMgrFilter');
+            
+            // Set saved values with validation
+            const availableOptions = Array.from(solutionDropdown.options).map(opt => opt.value);
+            if (availableOptions.includes(currentSolutionFilter)) {
+                solutionDropdown.value = currentSolutionFilter;
+                log(`[DROPDOWN] Solution set to: ${solutionDropdown.value}`, 'success');
+            } else {
+                log(`[DROPDOWN] Solution value not found: ${currentSolutionFilter}, available: ${availableOptions}`, 'warning');
+                currentSolutionFilter = 'all';
+                solutionDropdown.value = 'all';
+            }
+            
+            const availableMgrOptions = Array.from(mgrDropdown.options).map(opt => opt.value);
+            if (availableMgrOptions.includes(currentAccountMgrFilter)) {
+                mgrDropdown.value = currentAccountMgrFilter;
+                log(`[DROPDOWN] Account Manager set to: ${mgrDropdown.value}`, 'success');
+            } else {
+                log(`[DROPDOWN] Account Manager value not found: ${currentAccountMgrFilter}, available: ${availableMgrOptions}`, 'warning');
+                currentAccountMgrFilter = 'all';
+                mgrDropdown.value = 'all';
+            }
+        }
+
+        function runFullSettingsTest() {
+            log('[TEST] Starting full settings test...', 'info');
+            
+            // Phase 1: Save test settings
+            currentSolutionFilter = 'Data Analytics';
+            currentAccountMgrFilter = 'John Doe';
+            currentClientFilter = 'all';
+            activeQuarters = { '1': true, '2': false, '3': true, '4': false };
+            currentTableStatusFilter = 'LOST';
+            currentSort = { col: 'final_amt', dir: -1 };
+            
+            const saved = saveSettings();
+            
+            // Phase 2: Reset to defaults
+            currentSolutionFilter = 'all';
+            currentAccountMgrFilter = 'all';
+            currentClientFilter = 'all';
+            activeQuarters = { '1': false, '2': false, '3': false, '4': false };
+            currentTableStatusFilter = 'OP100';
+            currentSort = { col: null, dir: 1 };
+            
+            log('[TEST] Reset to defaults', 'info');
+            
+            // Phase 3: Load settings
+            const loaded = loadSettings();
+            
+            // Phase 4: Validate restoration
+            let success = true;
+            const issues = [];
+            
+            if (currentSolutionFilter !== 'Data Analytics') {
+                success = false;
+                issues.push(`Solution filter: expected "Data Analytics", got "${currentSolutionFilter}"`);
+            }
+            
+            if (currentAccountMgrFilter !== 'John Doe') {
+                success = false;
+                issues.push(`Account Manager filter: expected "John Doe", got "${currentAccountMgrFilter}"`);
+            }
+            
+            if (currentTableStatusFilter !== 'LOST') {
+                success = false;
+                issues.push(`Table status filter: expected "LOST", got "${currentTableStatusFilter}"`);
+            }
+            
+            if (currentSort.col !== 'final_amt' || currentSort.dir !== -1) {
+                success = false;
+                issues.push(`Sort: expected {col: "final_amt", dir: -1}, got ${JSON.stringify(currentSort)}`);
+            }
+            
+            // Update test dropdowns
+            populateTestDropdowns();
+            
+            const resultDiv = document.getElementById('settings-test-results');
+            if (success) {
+                resultDiv.innerHTML = `<div class="success">✅ Full settings test PASSED - all values restored correctly</div>`;
+                log('[TEST] Full settings test PASSED', 'success');
+            } else {
+                resultDiv.innerHTML = `<div class="error">❌ Full settings test FAILED<br>Issues:<br>${issues.join('<br>')}</div>`;
+                log(`[TEST] Full settings test FAILED: ${issues.join(', ')}`, 'error');
+            }
+        }
+
+        function testDropdownValidation() {
+            log('[TEST] Testing dropdown validation...', 'info');
+            
+            // Set valid values first
+            currentSolutionFilter = 'Cloud Solutions';
+            currentAccountMgrFilter = 'Jane Smith';
+            
+            populateTestDropdowns();
+            
+            const solutionValue = document.getElementById('testSolutionFilter').value;
+            const mgrValue = document.getElementById('testAccountMgrFilter').value;
+            
+            const success = (solutionValue === 'Cloud Solutions' && mgrValue === 'Jane Smith');
+            
+            const resultDiv = document.getElementById('dropdown-validation-results');
+            if (success) {
+                resultDiv.innerHTML = `<div class="success">✅ Dropdown validation test PASSED</div>`;
+                log('[TEST] Dropdown validation PASSED', 'success');
+            } else {
+                resultDiv.innerHTML = `<div class="error">❌ Dropdown validation test FAILED<br>Expected: Cloud Solutions / Jane Smith<br>Got: ${solutionValue} / ${mgrValue}</div>`;
+                log('[TEST] Dropdown validation FAILED', 'error');
+            }
+        }
+
+        function testInvalidValues() {
+            log('[TEST] Testing invalid value handling...', 'info');
+            
+            // Set invalid values
+            currentSolutionFilter = 'NonExistentSolution';
+            currentAccountMgrFilter = 'NonExistentManager';
+            
+            populateTestDropdowns();
+            
+            const solutionValue = document.getElementById('testSolutionFilter').value;
+            const mgrValue = document.getElementById('testAccountMgrFilter').value;
+            
+            // Should have fallen back to 'all'
+            const success = (solutionValue === 'all' && mgrValue === 'all' && currentSolutionFilter === 'all' && currentAccountMgrFilter === 'all');
+            
+            const resultDiv = document.getElementById('dropdown-validation-results');
+            if (success) {
+                resultDiv.innerHTML += `<div class="success">✅ Invalid value handling test PASSED - fell back to 'all'</div>`;
+                log('[TEST] Invalid value handling PASSED', 'success');
+            } else {
+                resultDiv.innerHTML += `<div class="error">❌ Invalid value handling test FAILED<br>Expected: all / all<br>Got: ${solutionValue} / ${mgrValue}<br>Variables: ${currentSolutionFilter} / ${currentAccountMgrFilter}</div>`;
+                log('[TEST] Invalid value handling FAILED', 'error');
+            }
+        }
+
+        function testThemePersistence() {
+            log('[TEST] Testing theme persistence...', 'info');
+            
+            // Save current theme
+            const originalTheme = document.documentElement.classList.contains('dark') ? 'dark' : 'light';
+            
+            // Set to dark and save
+            applyTheme('dark');
+            saveSettings();
+            
+            // Set to light temporarily
+            applyTheme('light');
+            
+            // Load settings (should restore dark)
+            const loaded = loadSettings();
+            if (loaded && loaded.theme) {
+                applyTheme(loaded.theme);
+            }
+            
+            const restoredTheme = document.documentElement.classList.contains('dark') ? 'dark' : 'light';
+            
+            // Restore original theme
+            applyTheme(originalTheme);
+            
+            const success = (restoredTheme === 'dark');
+            
+            const resultDiv = document.getElementById('theme-test-results');
+            if (success) {
+                resultDiv.innerHTML = `<div class="success">✅ Theme persistence test PASSED</div>`;
+                log('[TEST] Theme persistence PASSED', 'success');
+            } else {
+                resultDiv.innerHTML = `<div class="error">❌ Theme persistence test FAILED<br>Expected: dark, Got: ${restoredTheme}</div>`;
+                log('[TEST] Theme persistence FAILED', 'error');
+            }
+        }
+
+        function simulatePageNavigation() {
+            log('[TEST] Simulating page navigation...', 'info');
+            
+            // Set some specific state
+            currentSolutionFilter = 'AI/ML';
+            applyTheme('dark');
+            saveSettings();
+            
+            // Simulate leaving page (reset everything)
+            currentSolutionFilter = 'all';
+            currentAccountMgrFilter = 'all';
+            applyTheme('light');
+            
+            log('[TEST] Simulated leaving page - all settings reset', 'info');
+            
+            // Simulate returning to page (load settings)
+            setTimeout(() => {
+                const loaded = loadSettings();
+                if (loaded) {
+                    if (loaded.theme) applyTheme(loaded.theme);
+                    populateTestDropdowns();
+                }
+                
+                const isCorrect = (currentSolutionFilter === 'AI/ML' && document.documentElement.classList.contains('dark'));
+                
+                const resultDiv = document.getElementById('theme-test-results');
+                if (isCorrect) {
+                    resultDiv.innerHTML += `<div class="success">✅ Page navigation simulation PASSED - settings restored</div>`;
+                    log('[TEST] Page navigation simulation PASSED', 'success');
+                } else {
+                    resultDiv.innerHTML += `<div class="error">❌ Page navigation simulation FAILED<br>Solution: ${currentSolutionFilter}, Theme: ${document.documentElement.classList.contains('dark') ? 'dark' : 'light'}</div>`;
+                    log('[TEST] Page navigation simulation FAILED', 'error');
+                }
+            }, 100);
+        }
+
+        function runCompleteIntegrationTest() {
+            log('[TEST] Running complete integration test...', 'info');
+            
+            const resultDiv = document.getElementById('integration-test-results');
+            resultDiv.innerHTML = '<div class="info">Running tests...</div>';
+            
+            let testsPassed = 0;
+            let totalTests = 4;
+            
+            // Test 1: Settings save/load
+            try {
+                currentSolutionFilter = 'Data Analytics';
+                currentAccountMgrFilter = 'Bob Wilson';
+                const saved = saveSettings();
+                currentSolutionFilter = 'all';
+                currentAccountMgrFilter = 'all';
+                const loaded = loadSettings();
+                
+                if (currentSolutionFilter === 'Data Analytics' && currentAccountMgrFilter === 'Bob Wilson') {
+                    testsPassed++;
+                    log('[INTEGRATION] Test 1 PASSED: Settings save/load', 'success');
+                } else {
+                    log('[INTEGRATION] Test 1 FAILED: Settings save/load', 'error');
+                }
+            } catch (e) {
+                log(`[INTEGRATION] Test 1 ERROR: ${e.message}`, 'error');
+            }
+            
+            // Test 2: Dropdown validation
+            try {
+                populateTestDropdowns();
+                const solutionDropdown = document.getElementById('testSolutionFilter');
+                if (solutionDropdown.value === currentSolutionFilter) {
+                    testsPassed++;
+                    log('[INTEGRATION] Test 2 PASSED: Dropdown validation', 'success');
+                } else {
+                    log('[INTEGRATION] Test 2 FAILED: Dropdown validation', 'error');
+                }
+            } catch (e) {
+                log(`[INTEGRATION] Test 2 ERROR: ${e.message}`, 'error');
+            }
+            
+            // Test 3: Theme management
+            try {
+                const originalTheme = document.documentElement.classList.contains('dark') ? 'dark' : 'light';
+                applyTheme('dark');
+                const isDarkApplied = document.documentElement.classList.contains('dark');
+                applyTheme(originalTheme); // Restore
+                
+                if (isDarkApplied) {
+                    testsPassed++;
+                    log('[INTEGRATION] Test 3 PASSED: Theme management', 'success');
+                } else {
+                    log('[INTEGRATION] Test 3 FAILED: Theme management', 'error');
+                }
+            } catch (e) {
+                log(`[INTEGRATION] Test 3 ERROR: ${e.message}`, 'error');
+            }
+            
+            // Test 4: Storage persistence
+            try {
+                const testKey = 'integrationTest';
+                const testValue = { test: 'value', timestamp: Date.now() };
+                localStorage.setItem(testKey, JSON.stringify(testValue));
+                const retrieved = JSON.parse(localStorage.getItem(testKey));
+                localStorage.removeItem(testKey);
+                
+                if (retrieved && retrieved.test === 'value') {
+                    testsPassed++;
+                    log('[INTEGRATION] Test 4 PASSED: Storage persistence', 'success');
+                } else {
+                    log('[INTEGRATION] Test 4 FAILED: Storage persistence', 'error');
+                }
+            } catch (e) {
+                log(`[INTEGRATION] Test 4 ERROR: ${e.message}`, 'error');
+            }
+            
+            // Final result
+            const success = testsPassed === totalTests;
+            resultDiv.innerHTML = `
+                <div class="${success ? 'success' : 'error'}">
+                    ${success ? '✅' : '❌'} Integration Test Results: ${testsPassed}/${totalTests} tests passed
+                </div>
+                <div class="info">
+                    Individual test results are in the debug console above.
+                </div>
+            `;
+            
+            log(`[INTEGRATION] Final result: ${testsPassed}/${totalTests} tests passed`, success ? 'success' : 'error');
+        }
+
+        function clearAllSettings() {
+            localStorage.removeItem(SETTINGS_KEY);
+            localStorage.removeItem('theme');
+            currentSolutionFilter = 'all';
+            currentAccountMgrFilter = 'all';
+            currentClientFilter = 'all';
+            activeQuarters = { '1': true, '2': true, '3': false, '4': false };
+            currentTableStatusFilter = 'OP100';
+            currentSort = { col: null, dir: 1 };
+            
+            populateTestDropdowns();
+            applyTheme('light');
+            
+            log('[SETTINGS] All settings cleared and reset to defaults', 'info');
+            
+            document.getElementById('settings-test-results').innerHTML = '<div class="info">All settings cleared</div>';
+        }
+
+        // Initialize
+        window.onload = function() {
+            log('[INIT] Test page loaded', 'info');
+            
+            // Check for existing settings
+            const existing = loadSettings();
+            if (existing) {
+                if (existing.theme) applyTheme(existing.theme);
+                populateTestDropdowns();
+                log('[INIT] Existing settings loaded', 'success');
+            } else {
+                log('[INIT] No existing settings found', 'info');
+            }
+            
+            updateThemeStatus();
+        };
+    </script>
+</body>
+</html>

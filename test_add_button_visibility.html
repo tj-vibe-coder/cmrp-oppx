@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Add Button Visibility Test</title>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+        }
+        .test-container {
+            margin-bottom: 40px;
+            border: 1px solid #ccc;
+            padding: 20px;
+            border-radius: 8px;
+        }
+        .test-header {
+            background-color: #0C2135;
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            position: relative;
+            margin-bottom: 10px;
+        }
+        .test-column {
+            background-color: white;
+            min-height: 100px;
+            padding: 10px;
+            border-radius: 5px;
+            position: relative;
+        }
+        .dark-mode-toggle {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 10px;
+            background-color: #333;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .dark {
+            background-color: #333;
+            color: white;
+        }
+        .dark .test-column {
+            background-color: #444;
+        }
+    </style>
+</head>
+<body>
+    <h1>Add Button Visibility Test</h1>
+    <button class="dark-mode-toggle" id="darkModeToggle">Toggle Dark Mode</button>
+
+    <div class="test-container">
+        <h2>Header Add Button</h2>
+        <div class="test-header">
+            <div>Day Header Content</div>
+            <button class="add-day-item-btn">
+                <span class="material-icons">add</span>
+            </button>
+        </div>
+    </div>
+
+    <div class="test-container">
+        <h2>Column Add Button</h2>
+        <div class="test-column">
+            <div>Column Content</div>
+            <button class="add-day-item-bottom-btn">
+                <span class="material-icons">add</span>
+            </button>
+        </div>
+    </div>
+
+    <div class="test-container">
+        <h2>Day Action Menu</h2>
+        <div id="dayActionMenu" style="position: static; display: block; margin-top: 20px;">
+            <button id="addTaskAction" class="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded flex items-center">
+                <span class="material-icons text-sm mr-2 text-indigo-500">add_task</span>
+                <span>Add Task</span>
+            </button>
+            <button id="addProposalAction" class="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded flex items-center">
+                <span class="material-icons text-sm mr-2 text-green-500">description</span>
+                <span>Add Proposal</span>
+            </button>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('darkModeToggle').addEventListener('click', function() {
+            document.body.classList.toggle('dark');
+        });
+    </script>
+</body>
+</html> 

@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cross-Browser Online Users Test</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body class="min-h-screen p-6">
+    <div class="max-w-4xl mx-auto">
+        <h1 class="text-2xl font-bold mb-6">Cross-Browser Online Users Test</h1>
+        
+        <div class="bg-white dark:bg-gray-800 rounded p-6 mb-6">
+            <h2 class="text-lg font-semibold mb-4">Current User</h2>
+            <div>User: <span id="userName">Loading...</span></div>
+            <div>ID: <span id="userId">Loading...</span></div>
+        </div>
+        
+        <div class="bg-white dark:bg-gray-800 rounded p-6 mb-6">
+            <h2 class="text-lg font-semibold mb-4">Online Users</h2>
+            <div>Count: <span id="onlineCount" class="text-green-600 font-bold">0</span></div>
+            <div id="usersList" class="mt-4"></div>
+        </div>
+        
+        <div class="space-x-4">
+            <button id="sendHeartbeat" class="bg-blue-500 text-white px-4 py-2 rounded">Send Heartbeat</button>
+            <button id="clearLog" class="bg-gray-500 text-white px-4 py-2 rounded">Clear Log</button>
+        </div>
+        
+        <div class="bg-black text-green-400 p-4 rounded mt-6">
+            <div id="log" class="font-mono text-sm h-64 overflow-y-auto"></div>
+        </div>
+    </div>
+
+    <script src="config.js"></script>
+    <script>
+        let logs = [];
+        
+        function log(msg) {
+            const time = new Date().toLocaleTimeString();
+            logs.push(`[${time}] ${msg}`);
+            document.getElementById('log').textContent = logs.join('\n');
+            console.log(msg);
+        }
+        
+        function getApiUrl(endpoint) {
+            return (window.APP_CONFIG?.API_BASE_URL || '') + endpoint;
+        }
+        
+        async function sendHeartbeat() {
+            const token = localStorage.getItem('authToken');
+            if (!token) {
+                log('ERROR: No token found');
+                return;
+            }
+            
+            try {
+                log('Sending heartbeat...');
+                const response = await fetch(getApiUrl('/api/heartbeat'), {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        page: window.location.pathname,
+                        timestamp: Date.now()
+                    })
+                });
+                
+                log(`Response: ${response.status}`);
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    log(`Success! Online users: ${data.totalOnline}`);
+                    updateUsers(data.onlineUsers || []);
+                } else {
+                    const error = await response.text();
+                    log(`Error: ${error}`);
+                }
+            } catch (err) {
+                log(`Network error: ${err.message}`);
+            }
+        }
+        
+        function updateUsers(users) {
+            document.getElementById('onlineCount').textContent = users.length;
+            const listEl = document.getElementById('usersList');
+            
+            listEl.innerHTML = users.map(user => 
+                `<div class="p-2 bg-gray-100 dark:bg-gray-700 rounded mb-2">
+                    <strong>${user.name}</strong> (${user.id})<br>
+                    <small>Page: ${user.page} | Last seen: ${new Date(user.lastSeen).toLocaleTimeString()}</small>
+                </div>`
+            ).join('');
+        }
+        
+        document.addEventListener('DOMContentLoaded', function() {
+            const savedTheme = localStorage.getItem('theme') || 'dark';
+            document.documentElement.classList.toggle('dark', savedTheme === 'dark');
+            
+            const token = localStorage.getItem('authToken');
+            if (token) {
+                try {
+                    const payload = JSON.parse(atob(token.split('.')[1]));
+                    document.getElementById('userName').textContent = payload.name || 'Unknown';
+                    document.getElementById('userId').textContent = payload.id || 'Unknown';
+                    log(`Initialized user: ${payload.name}`);
+                } catch (e) {
+                    log('Failed to parse token');
+                }
+            } else {
+                log('No auth token found');
+            }
+            
+            document.getElementById('sendHeartbeat').addEventListener('click', sendHeartbeat);
+            document.getElementById('clearLog').addEventListener('click', () => {
+                logs = [];
+                document.getElementById('log').textContent = '';
+            });
+            
+            // Auto-send heartbeat every 10 seconds for testing
+            setInterval(sendHeartbeat, 10000);
+            sendHeartbeat(); // Initial heartbeat
+        });
+    </script>
+</body>
+</html> 

@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node:*)",
+      "Bash(npm install:*)",
+      "Read(//c/Users/Lenovo/Documents/GitHub/**)",
+      "Bash(xcopy:*)",
+      "Bash(robocopy:*)",
+      "Bash(exit 0)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

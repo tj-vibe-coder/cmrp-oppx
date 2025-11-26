@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug Immediate Logout Issue</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .debug-section {
+            background: white;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .success { color: #22c55e; }
+        .error { color: #ef4444; }
+        .warning { color: #f59e0b; }
+        .info { color: #3b82f6; }
+        pre {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        button {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #2563eb;
+        }
+        .clear-btn {
+            background: #ef4444;
+        }
+        .clear-btn:hover {
+            background: #dc2626;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔍 Debug Immediate Logout Issue</h1>
+    
+    <div class="debug-section">
+        <h2>Step 1: Check Authentication Token</h2>
+        <button onclick="checkToken()">Check Token</button>
+        <button onclick="clearToken()" class="clear-btn">Clear Token</button>
+        <div id="tokenResult"></div>
+    </div>
+
+    <div class="debug-section">
+        <h2>Step 2: Test API Connection</h2>
+        <button onclick="testApiConnection()">Test API Connection</button>
+        <div id="apiResult"></div>
+    </div>
+
+    <div class="debug-section">
+        <h2>Step 3: Test Opportunities Endpoint</h2>
+        <button onclick="testOpportunitiesEndpoint()">Test /api/opportunities</button>
+        <div id="opportunitiesResult"></div>
+    </div>
+
+    <div class="debug-section">
+        <h2>Step 4: Application Configuration</h2>
+        <button onclick="checkAppConfig()">Check App Config</button>
+        <div id="configResult"></div>
+    </div>
+
+    <div class="debug-section">
+        <h2>Step 5: Console Logs</h2>
+        <button onclick="showConsoleLogs()">Capture Console Logs</button>
+        <button onclick="clearLogs()" class="clear-btn">Clear Logs</button>
+        <div id="logsResult"></div>
+    </div>
+
+    <div class="debug-section">
+        <h2>Quick Fixes</h2>
+        <button onclick="goToLogin()">Go to Login Page</button>
+        <button onclick="reloadWithFreshStart()">Reload with Fresh Start</button>
+        <button onclick="goToMainApp()">Try Main App</button>
+    </div>
+
+    <script>
+        // Capture console logs
+        let capturedLogs = [];
+        const originalConsoleLog = console.log;
+        const originalConsoleError = console.error;
+        const originalConsoleWarn = console.warn;
+
+        console.log = function(...args) {
+            capturedLogs.push({ type: 'log', time: new Date().toISOString(), args: args });
+            originalConsoleLog.apply(console, args);
+        };
+
+        console.error = function(...args) {
+            capturedLogs.push({ type: 'error', time: new Date().toISOString(), args: args });
+            originalConsoleError.apply(console, args);
+        };
+
+        console.warn = function(...args) {
+            capturedLogs.push({ type: 'warn', time: new Date().toISOString(), args: args });
+            originalConsoleWarn.apply(console, args);
+        };
+
+        function getApiUrl(endpoint) {
+            const baseUrl = window.APP_CONFIG?.API_BASE_URL || '';
+            return `${baseUrl}${endpoint}`;
+        }
+
+        function checkToken() {
+            const result = document.getElementById('tokenResult');
+            const token = localStorage.getItem('authToken');
+            
+            if (!token) {
+                result.innerHTML = '<div class="error">❌ No token found in localStorage</div>';
+                return;
+            }
+
+            try {
+                const parts = token.split('.');
+                if (parts.length !== 3) {
+                    result.innerHTML = '<div class="error">❌ Invalid token format (should have 3 parts)</div>';
+                    return;
+                }
+
+                const payload = JSON.parse(atob(parts[1]));
+                const now = Date.now() / 1000;
+                
+                const isExpired = payload.exp && payload.exp < now;
+                const timeUntilExpiry = payload.exp ? Math.round(payload.exp - now) : 'unknown';
+
+                result.innerHTML = `
+                    <div class="${isExpired ? 'error' : 'success'}">
+                        ${isExpired ? '❌' : '✅'} Token ${isExpired ? 'EXPIRED' : 'VALID'}
+                    </div>
+                    <pre>Token Preview: ${token.substring(0, 50)}...
+Payload: ${JSON.stringify(payload, null, 2)}
+Time until expiry: ${timeUntilExpiry} seconds
+Current time: ${now}
+Token exp: ${payload.exp}</pre>
+                `;
+            } catch (error) {
+                result.innerHTML = `
+                    <div class="error">❌ Error parsing token: ${error.message}</div>
+                    <pre>Token: ${token}</pre>
+                `;
+            }
+        }
+
+        function clearToken() {
+            localStorage.removeItem('authToken');
+            document.getElementById('tokenResult').innerHTML = '<div class="warning">⚠️ Token cleared from localStorage</div>';
+        }
+
+        async function testApiConnection() {
+            const result = document.getElementById('apiResult');
+            result.innerHTML = '<div class="info">🔄 Testing API connection...</div>';
+
+            try {
+                const response = await fetch(getApiUrl('/api/health'), {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.text();
+                    result.innerHTML = `
+                        <div class="success">✅ API connection successful</div>
+                        <pre>Response: ${data}</pre>
+                    `;
+                } else {
+                    result.innerHTML = `
+                        <div class="error">❌ API connection failed</div>
+                        <pre>Status: ${response.status}
+Response: ${await response.text()}</pre>
+                    `;
+                }
+            } catch (error) {
+                result.innerHTML = `
+                    <div class="error">❌ Network error</div>
+                    <pre>Error: ${error.message}
+API URL: ${getApiUrl('/api/health')}</pre>
+                `;
+            }
+        }
+
+        async function testOpportunitiesEndpoint() {
+            const result = document.getElementById('opportunitiesResult');
+            result.innerHTML = '<div class="info">🔄 Testing opportunities endpoint...</div>';
+
+            const token = localStorage.getItem('authToken');
+            if (!token) {
+                result.innerHTML = '<div class="error">❌ No token available for testing</div>';
+                return;
+            }
+
+            try {
+                const response = await fetch(getApiUrl('/api/opportunities'), {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    result.innerHTML = `
+                        <div class="success">✅ Opportunities endpoint successful</div>
+                        <pre>Response length: ${data.length} opportunities
+First opportunity: ${JSON.stringify(data[0], null, 2)}</pre>
+                    `;
+                } else {
+                    const errorText = await response.text();
+                    result.innerHTML = `
+                        <div class="error">❌ Opportunities endpoint failed</div>
+                        <pre>Status: ${response.status}
+Response: ${errorText}</pre>
+                    `;
+                }
+            } catch (error) {
+                result.innerHTML = `
+                    <div class="error">❌ Network error</div>
+                    <pre>Error: ${error.message}
+API URL: ${getApiUrl('/api/opportunities')}</pre>
+                `;
+            }
+        }
+
+        function checkAppConfig() {
+            const result = document.getElementById('configResult');
+            
+            result.innerHTML = `
+                <pre>window.APP_CONFIG: ${JSON.stringify(window.APP_CONFIG, null, 2)}
+Current Origin: ${window.location.origin}
+Current Pathname: ${window.location.pathname}
+Environment: ${window.location.hostname === 'localhost' ? 'Local' : 'Production'}
+API Base URL: ${window.APP_CONFIG?.API_BASE_URL || 'Not set'}
+Resolved API URL for /api/opportunities: ${getApiUrl('/api/opportunities')}</pre>
+            `;
+        }
+
+        function showConsoleLogs() {
+            const result = document.getElementById('logsResult');
+            const recentLogs = capturedLogs.slice(-20); // Show last 20 logs
+            
+            if (recentLogs.length === 0) {
+                result.innerHTML = '<div class="info">No logs captured yet</div>';
+                return;
+            }
+
+            const logsHtml = recentLogs.map(log => {
+                const typeClass = log.type === 'error' ? 'error' : log.type === 'warn' ? 'warning' : 'info';
+                return `<div class="${typeClass}">[${log.time}] ${log.type.toUpperCase()}: ${log.args.join(' ')}</div>`;
+            }).join('');
+
+            result.innerHTML = `<pre>${logsHtml}</pre>`;
+        }
+
+        function clearLogs() {
+            capturedLogs = [];
+            document.getElementById('logsResult').innerHTML = '<div class="info">Logs cleared</div>';
+        }
+
+        function goToLogin() {
+            window.location.href = 'login.html';
+        }
+
+        function reloadWithFreshStart() {
+            localStorage.removeItem('authToken');
+            window.location.href = 'login.html';
+        }
+
+        function goToMainApp() {
+            window.location.href = 'index.html';
+        }
+
+        // Auto-run initial checks
+        window.addEventListener('DOMContentLoaded', function() {
+            console.log('[DEBUG] Immediate logout diagnostic page loaded');
+            checkToken();
+            checkAppConfig();
+        });
+    </script>
+</body>
+</html> 

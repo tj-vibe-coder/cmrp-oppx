@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Google Drive Search Functionality</title>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Google Drive Search Test</h1>
+        
+        <div class="test-section">
+            <h2>Test Search Modal</h2>
+            <p>This tests the new Google Drive search functionality added to the edit modal.</p>
+            
+            <button id="testSearchBtn" class="drive-folder-search-btn">
+                <span class="material-icons">search</span>
+                Test Search Modal
+            </button>
+        </div>
+
+        <div class="test-section">
+            <h2>Test Manual Search</h2>
+            <div class="drive-search-input-container">
+                <input type="text" id="manualSearchInput" placeholder="Enter search term..." class="drive-search-input" />
+                <button id="manualSearchBtn" class="drive-search-btn">
+                    <span class="material-icons">search</span>
+                    Manual Search
+                </button>
+            </div>
+            <div id="manualSearchResults" class="search-results-container" style="min-height: 100px;">
+                <div class="search-loading">Ready to search...</div>
+            </div>
+        </div>
+
+        <div class="test-section">
+            <h2>Test Results</h2>
+            <div id="testResults">
+                <p>No tests run yet.</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Mock opportunity data for testing
+        const mockOpportunity = {
+            uid: 'test-123',
+            project_code: 'CMRP241201',
+            project_name: 'Test Project Name',
+            client: 'Test Client'
+        };
+
+        // Test search modal functionality
+        document.getElementById('testSearchBtn').addEventListener('click', () => {
+            addTestResult('Testing search modal functionality...');
+            
+            if (typeof showDriveFolderSearchModal === 'function') {
+                try {
+                    showDriveFolderSearchModal(mockOpportunity);
+                    addTestResult('✅ Search modal opened successfully');
+                } catch (error) {
+                    addTestResult('❌ Error opening search modal: ' + error.message);
+                }
+            } else {
+                addTestResult('❌ showDriveFolderSearchModal function not found');
+            }
+        });
+
+        // Test manual search functionality
+        document.getElementById('manualSearchBtn').addEventListener('click', async () => {
+            const query = document.getElementById('manualSearchInput').value.trim();
+            const resultsContainer = document.getElementById('manualSearchResults');
+            
+            if (!query) {
+                addTestResult('❌ Please enter a search term');
+                return;
+            }
+
+            addTestResult(`Testing manual search for: "${query}"`);
+            
+            try {
+                resultsContainer.innerHTML = '<div class="search-loading"><span class="material-icons rotating">autorenew</span> Searching...</div>';
+                
+                // Mock API call since we might not have valid auth tokens
+                const mockResults = [
+                    {
+                        id: 'mock-folder-1',
+                        name: `Mock Folder - ${query}`,
+                        url: 'https://drive.google.com/mock',
+                        createdTime: new Date().toISOString(),
+                        relevanceScore: 2
+                    },
+                    {
+                        id: 'mock-folder-2',
+                        name: `Another Folder with ${query}`,
+                        url: 'https://drive.google.com/mock2',
+                        createdTime: new Date().toISOString(),
+                        relevanceScore: 1
+                    }
+                ];
+
+                // Test the displaySearchResults function
+                if (typeof displaySearchResults === 'function') {
+                    displaySearchResults(mockResults, resultsContainer);
+                    addTestResult('✅ Search results displayed successfully');
+                } else {
+                    addTestResult('❌ displaySearchResults function not found');
+                    resultsContainer.innerHTML = '<div class="search-error">Function not available</div>';
+                }
+                
+            } catch (error) {
+                addTestResult('❌ Error during search: ' + error.message);
+                resultsContainer.innerHTML = `<div class="search-error">Error: ${error.message}</div>`;
+            }
+        });
+
+        function addTestResult(message) {
+            const resultsDiv = document.getElementById('testResults');
+            const timestamp = new Date().toLocaleTimeString();
+            const resultElement = document.createElement('div');
+            resultElement.innerHTML = `<strong>${timestamp}:</strong> ${message}`;
+            resultsDiv.appendChild(resultElement);
+            console.log(`[TEST] ${timestamp}: ${message}`);
+        }
+
+        // Test CSS classes are loaded
+        window.addEventListener('load', () => {
+            addTestResult('Page loaded, checking CSS...');
+            
+            const testElement = document.createElement('div');
+            testElement.className = 'drive-search-btn';
+            document.body.appendChild(testElement);
+            
+            const styles = window.getComputedStyle(testElement);
+            if (styles.backgroundColor === 'rgb(26, 115, 232)') {
+                addTestResult('✅ CSS styles loaded correctly');
+            } else {
+                addTestResult('❌ CSS styles not loaded or incorrect');
+            }
+            
+            document.body.removeChild(testElement);
+        });
+    </script>
+
+    <!-- Include the main app.js to test functions -->
+    <script src="app.js"></script>
+
+    <style>
+        .container {
+            max-width: 800px;
+            margin: 2rem auto;
+            padding: 2rem;
+        }
+
+        .test-section {
+            margin-bottom: 2rem;
+            padding: 1.5rem;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background-color: #f9f9f9;
+        }
+
+        .test-section h2 {
+            margin-top: 0;
+            color: #333;
+        }
+
+        #testResults {
+            max-height: 300px;
+            overflow-y: auto;
+            background-color: #f5f5f5;
+            padding: 1rem;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 0.9rem;
+        }
+
+        #testResults div {
+            margin-bottom: 0.5rem;
+            padding: 0.25rem;
+        }
+    </style>
+</body>
+</html>

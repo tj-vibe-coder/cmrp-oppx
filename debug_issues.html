@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug Issues</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <script src="config.js"></script>
+</head>
+<body>
+    <div class="container mx-auto p-6">
+        <h1>Debug Filter Status and Theme Issues</h1>
+        
+        <div class="mb-6 p-4 border">
+            <h2>Current Status</h2>
+            <div id="status-info">
+                <div>Theme: <span id="current-theme">Unknown</span></div>
+                <div>Filter Status Element: <span id="filter-element-status">Unknown</span></div>
+                <div>Theme Toggle Element: <span id="theme-element-status">Unknown</span></div>
+            </div>
+        </div>
+
+        <!-- Test theme toggle -->
+        <div class="mb-6 p-4 border">
+            <h2>Theme Toggle Test</h2>
+            <button id="themeToggle" class="nav-square-btn">
+                <span class="material-icons">light_mode</span>
+            </button>
+            <div class="mt-4">
+                <div class="table-responsive-wrapper">
+                    <div class="table-container">
+                        <table class="min-w-full divide-y">
+                            <thead class="sticky-header">
+                                <tr>
+                                    <th class="px-3 py-2 bg-header text-left">Test Column 1</th>
+                                    <th class="px-3 py-2 bg-header text-left">Test Column 2</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td class="px-3 py-2">Test Data 1</td>
+                                    <td class="px-3 py-2">Test Data 2</td>
+                                </tr>
+                                <tr>
+                                    <td class="px-3 py-2">Test Data 3</td>
+                                    <td class="px-3 py-2">Test Data 4</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Test filter status -->
+        <div class="mb-6 p-4 border">
+            <h2>Filter Status Test</h2>
+            <div class="flex gap-2 mb-4" id="statusFilterButtons">
+                <button data-filter-type="status" data-filter-value="all" class="filter-button active">All</button>
+                <button data-filter-type="status" data-filter-value="op100" class="filter-button">OP100</button>
+                <button data-filter-type="status" data-filter-value="submitted" class="filter-button">Submitted</button>
+            </div>
+            <div id="rowCount" class="mt-4 text-sm p-2 border">
+                Initial state - no filter applied yet
+            </div>
+        </div>
+
+        <div id="console-output" class="mt-6 p-4 border">
+            <h3>Console Output:</h3>
+            <div id="console-content" class="font-mono text-sm"></div>
+        </div>
+    </div>
+
+    <script>
+        function log(message) {
+            const console_content = document.getElementById('console-content');
+            const timestamp = new Date().toLocaleTimeString();
+            console_content.innerHTML += `<div>${timestamp}: ${message}</div>`;
+            console.log(message);
+        }
+
+        function updateStatus() {
+            const currentTheme = document.documentElement.classList.contains('dark') ? 'dark' : 'light';
+            document.getElementById('current-theme').textContent = currentTheme;
+            
+            const rowCountElement = document.getElementById('rowCount');
+            document.getElementById('filter-element-status').textContent = rowCountElement ? 'Found' : 'Not found';
+            
+            const themeToggleElement = document.getElementById('themeToggle');
+            document.getElementById('theme-element-status').textContent = themeToggleElement ? 'Found' : 'Not found';
+        }
+
+        // Mock data
+        const mockOpportunities = [
+            { id: 1, name: 'Project A', status: 'op100' },
+            { id: 2, name: 'Project B', status: 'op90' },
+            { id: 3, name: 'Project C', status: 'submitted' },
+            { id: 4, name: 'Project D', status: 'op100' },
+        ];
+
+        let currentFilter = 'all';
+
+        function updateRowCount() {
+            log('updateRowCount called');
+            const rowCountElement = document.getElementById('rowCount');
+            if (!rowCountElement) {
+                log('ERROR: rowCount element not found!');
+                return;
+            }
+            
+            let filteredData = mockOpportunities;
+            if (currentFilter !== 'all') {
+                filteredData = mockOpportunities.filter(opp => opp.status === currentFilter);
+            }
+            
+            const actualCount = filteredData.length;
+            const totalCount = mockOpportunities.length;
+            
+            rowCountElement.textContent = `Showing ${actualCount} of ${totalCount} opportunities (Filter: ${currentFilter})`;
+            log(`Updated row count: ${actualCount} of ${totalCount} (Filter: ${currentFilter})`);
+        }
+
+        function applyTheme(theme) {
+            log(`applyTheme called with: ${theme}`);
+            const htmlElement = document.documentElement;
+            const isDark = theme === 'dark';
+            htmlElement.classList.toggle('dark', isDark);
+            
+            const themeToggle = document.getElementById('themeToggle');
+            const icon = themeToggle?.querySelector('.material-icons');
+            if (icon) {
+                icon.textContent = isDark ? 'dark_mode' : 'light_mode';
+                log(`Updated theme toggle icon to: ${icon.textContent}`);
+            }
+            
+            updateStatus();
+        }
+
+        function toggleTheme() {
+            log('toggleTheme called');
+            const htmlElement = document.documentElement;
+            const currentTheme = htmlElement.classList.contains('dark') ? 'dark' : 'light';
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            applyTheme(newTheme);
+            localStorage.setItem('theme', newTheme);
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            log('DOM content loaded');
+            
+            // Initialize theme
+            const savedTheme = localStorage.getItem('theme') || 'dark';
+            log(`Saved theme: ${savedTheme}`);
+            applyTheme(savedTheme);
+            
+            // Set up theme toggle
+            const themeToggle = document.getElementById('themeToggle');
+            if (themeToggle) {
+                themeToggle.addEventListener('click', toggleTheme);
+                log('Theme toggle listener added');
+            } else {
+                log('ERROR: Theme toggle button not found');
+            }
+
+            // Set up filter buttons
+            const statusFilterButtonsContainer = document.getElementById('statusFilterButtons');
+            if (statusFilterButtonsContainer) {
+                statusFilterButtonsContainer.addEventListener('click', function(e) {
+                    if (e.target.matches('button.filter-button')) {
+                        log(`Filter button clicked: ${e.target.dataset.filterValue}`);
+                        
+                        // Remove active class from all buttons
+                        statusFilterButtonsContainer.querySelectorAll('.filter-button').forEach(btn => {
+                            btn.classList.remove('active');
+                        });
+                        
+                        // Add active class to clicked button
+                        e.target.classList.add('active');
+                        
+                        // Update current filter
+                        currentFilter = e.target.dataset.filterValue;
+                        
+                        // Update row count
+                        updateRowCount();
+                    }
+                });
+                log('Filter button listeners added');
+            } else {
+                log('ERROR: Filter buttons container not found');
+            }
+
+            // Initial update
+            updateRowCount();
+            updateStatus();
+            
+            log('Initialization complete');
+        });
+    </script>
+</body>
+</html>

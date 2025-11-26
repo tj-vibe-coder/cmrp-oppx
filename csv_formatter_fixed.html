@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CSV Formatter for opps_monitoring (Fixed)</title>
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script src="config.js"></script>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <button onclick="window.location.href='index.html'" style="margin-bottom: 1rem; background: #e5e7eb; color: #222; border: 1px solid #d1d5db;" title="Go back to Opportunities Management">&larr; Back</button>
+    <h1>CSV Formatter for opps_monitoring (Fixed Version)</h1>
+    
+    <div id="authStatus" style="margin-bottom: 1rem; padding: 10px; border-radius: 4px;">
+      Checking authentication...
+    </div>
+    
+    <div class="upload-section">
+      <label for="csvFile">Upload CSV file:</label><br>
+      <input type="file" id="csvFile" accept=".csv" />
+      <button id="processBtn" disabled>Process & Download</button>
+      <div id="message"></div>
+    </div>
+    <a id="downloadLink" class="download-link" style="display:none;">Download formatted CSV</a>
+    
+    <div style="margin-top: 2rem; padding: 15px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px;">
+      <h3>🔧 Fixed Issues:</h3>
+      <ul style="margin: 10px 0; padding-left: 20px;">
+        <li><strong>Date Handling:</strong> Fixed "Thu, 30/7/25" format and other problematic date formats</li>
+        <li><strong>Data Validation:</strong> Better validation for numeric fields and empty values</li>
+        <li><strong>Error Handling:</strong> Improved error messages for debugging</li>
+        <li><strong>Column Mapping:</strong> Ensures proper database column alignment</li>
+      </ul>
+    </div>
+    
+    <div style="margin-top: 1rem; padding: 15px; background: #f0f9ff; border: 1px solid #38bdf8; border-radius: 6px;">
+      <h3>🔍 How UID Creation Works:</h3>
+      <ul style="margin: 10px 0; padding-left: 20px;">
+        <li><strong>Always Generate New:</strong> Creates fresh UIDs for every project in the CSV</li>
+        <li><strong>No Database Lookup:</strong> Does not check for existing projects in the database</li>
+        <li><strong>Unique IDs:</strong> Ensures every imported project gets a unique identifier</li>
+        <li><strong>Statistics:</strong> Shows count of new UIDs created after processing</li>
+      </ul>
+    </div>
+  </div>
+  <script>
+    // Schema columns in order (from database-schema.txt)
+    const schema = [
+      'encoded_date','project_name','project_code','rev','client','solutions','sol_particulars','industries','ind_particulars','date_received','client_deadline','decision','account_mgr','pic','bom','status','submitted_date','margin','final_amt','opp_status','date_awarded_lost','lost_rca','l_particulars','a','c','r','u','d','remarks_comments','uid','forecast_date','revision'
+    ];
+    
+    let parsedData = null;
+    let authToken = localStorage.getItem('authToken');
+    
+    // Generate UUID
+    function uuidv4() {
+      return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        var r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+      });
+    }
+
+    // IMPROVED date formatting function - fixes the "Thu, 30/7/25" issue
+    function formatDate(val) {
+      if (!val || typeof val.toString !== 'function') return '';
+      const dateStr = val.toString().trim();
+      if (!dateStr) return '';
+
+      console.log(`Processing date: "${dateStr}"`); // Debug log
+      
+      const defaultYear = 2025;
+      
+      // Handle problematic formats first
+      // Format: "Thu, 30/7/25" or "Wed, 1/8/25"
+      if (dateStr.includes(',')) {
+        const afterComma = dateStr.split(',')[1]?.trim();
+        if (afterComma) {
+          console.log(`Found comma format, extracting: "${afterComma}"`);
+          return formatDate(afterComma); // Recursive call with cleaned date
+        }
+      }
+      
+      // Handle "TBD", "TBI", "N/A" etc.
+      const invalidDateStrings = ['TBD', 'TBI', 'N/A', 'NA', 'NULL', 'UNKNOWN', '-'];
+      if (invalidDateStrings.includes(dateStr.toUpperCase())) {
+        return '';
+      }
+      
+      let parsedDate = null;
+      
+      // Try different parsing approaches
+      // 1. Standard Date constructor
+      const standardDate = new Date(dateStr);
+      if (!isNaN(standardDate.getTime())) {
+        parsedDate = standardDate;
+      } else {
+        // 2. Manual parsing for various formats
+        const patterns = [
+          // DD/MM/YY, DD/MM/YYYY
+          /^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/,
+          // MM/DD/YY, MM/DD/YYYY  
+          /^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/,
+          // YYYY/MM/DD, YYYY-MM-DD
+          /^(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})$/,
+          // DD/MM or MM/DD (assume current year)
+          /^(\d{1,2})[\/\-.](\d{1,2})$/
+        ];
+        
+        for (let pattern of patterns) {
+          const match = dateStr.match(pattern);
+          if (match) {
+            let year, month, day;
+            
+            if (match.length === 4) { // DD/MM/YY format
+              let part1 = parseInt(match[1]);
+              let part2 = parseInt(match[2]); 
+              let part3 = parseInt(match[3]);
+              
+              if (match[3].length === 4) { // YYYY
+                if (part3 > 1900) { // YYYY/MM/DD
+                  year = part3;
+                  month = part1;
+                  day = part2;
+                } else { // DD/MM/YYYY or MM/DD/YYYY
+                  year = part3;
+                  if (part1 > 12) { // DD/MM/YYYY
+                    month = part2;
+                    day = part1;
+                  } else if (part2 > 12) { // MM/DD/YYYY  
+                    month = part1;
+                    day = part2;
+                  } else { // Ambiguous - assume MM/DD/YYYY
+                    month = part1;
+                    day = part2;
+                  }
+                }
+              } else { // YY format
+                year = part3 < 50 ? 2000 + part3 : 1900 + part3; // Handle 2-digit year
+                if (part1 > 12) { // DD/MM/YY
+                  month = part2;
+                  day = part1;
+                } else if (part2 > 12) { // MM/DD/YY
+                  month = part1;
+                  day = part2;
+                } else { // Ambiguous - assume DD/MM/YY for international format
+                  month = part2;
+                  day = part1;
+                }
+              }
+            } else if (match.length === 3) { // DD/MM format (no year)
+              year = defaultYear;
+              let part1 = parseInt(match[1]);
+              let part2 = parseInt(match[2]);
+              
+              if (part1 > 12) { // DD/MM
+                month = part2;
+                day = part1;
+              } else if (part2 > 12) { // MM/DD
+                month = part1;
+                day = part2;
+              } else { // Ambiguous - assume DD/MM
+                month = part2;
+                day = part1;
+              }
+            }
+            
+            // Validate the parsed date
+            if (year && month && day && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+              parsedDate = new Date(year, month - 1, day);
+              if (parsedDate.getFullYear() === year && 
+                  parsedDate.getMonth() === (month - 1) && 
+                  parsedDate.getDate() === day) {
+                break; // Valid date found
+              }
+            }
+          }
+        }
+      }
+      
+      // Format the result
+      if (parsedDate && !isNaN(parsedDate.getTime())) {
+        const year = parsedDate.getFullYear();
+        const month = String(parsedDate.getMonth() + 1).padStart(2, '0');
+        const day = String(parsedDate.getDate()).padStart(2, '0');
+        const result = `${year}-${month}-${day}`;
+        console.log(`Successfully formatted "${dateStr}" to "${result}"`);
+        return result;
+      }
+      
+      // If all parsing fails, return empty string instead of original
+      console.warn(`Failed to parse date: "${dateStr}"`);
+      return '';
+    }
+
+    // Helper: Clean margin (remove %)
+    function cleanMargin(val) {
+      if (!val) return '';
+      const cleaned = val.toString().replace(/%/g, '').trim();
+      return cleaned && !isNaN(parseFloat(cleaned)) ? cleaned : '';
+    }
+
+    // Helper: Clean final amount (remove currency symbols)
+    function cleanFinalAmt(val) {
+      if (!val) return '';
+      const cleaned = val.toString().replace(/[₱$,]/g, '').trim();
+      return cleaned && !isNaN(parseFloat(cleaned)) ? cleaned : '';
+    }
+
+    // Helper: Clean client deadline (remove TBI)
+    function cleanClientDeadline(val) {
+      if (!val) return '';
+      return val.toString().replace(/TBI/gi, '').trim();
+    }
+
+    // Helper: Validate and clean numeric fields
+    function cleanNumeric(val) {
+      if (!val) return '';
+      const cleaned = val.toString().replace(/[^0-9.-]/g, '').trim();
+      return cleaned && !isNaN(parseFloat(cleaned)) ? cleaned : '';
+    }
+
+    // File upload handler
+    document.getElementById('csvFile').addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      
+      document.getElementById('message').textContent = 'Loading file...';
+      
+      Papa.parse(file, {
+        complete: function(results) {
+          parsedData = results.data;
+          
+          // Remove empty rows
+          parsedData = parsedData.filter(row => 
+            row.some(cell => cell && cell.toString().trim() !== '')
+          );
+          
+          document.getElementById('message').innerHTML = `
+            <div style="padding: 10px; background: #f0f9ff; border: 1px solid #38bdf8; border-radius: 4px;">
+              ✅ Loaded ${parsedData.length} rows<br>
+              📁 File: ${file.name}<br>
+              🆕 Ready to process with improved date handling
+            </div>
+          `;
+          document.getElementById('processBtn').disabled = false;
+        },
+        error: function(err) {
+          document.getElementById('message').innerHTML = `
+            <div style="padding: 10px; background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; border-radius: 4px;">
+              ❌ Error parsing CSV: ${err.message}
+            </div>
+          `;
+        }
+      });
+    });
+
+    // Process button handler
+    document.getElementById('processBtn').addEventListener('click', function() {
+      if (!parsedData) return;
+      
+      let newUidCount = 0;
+      let dateIssues = [];
+      let processedRows = 0;
+      
+      document.getElementById('message').textContent = 'Processing rows...';
+      
+      // Process each row
+      const processed = parsedData.map((rowArray, rowIndex) => {
+        let out = {};
+        processedRows++;
+        
+        schema.forEach((colName, index) => {
+          const value = rowArray[index];
+
+          if (colName === 'uid') {
+            out[colName] = uuidv4();
+            newUidCount++;
+          } else if (colName === 'forecast_date') {
+            out[colName] = '';
+          } else if (colName === 'revision') {
+            out[colName] = '1';
+          } else if (colName === 'margin') {
+            out[colName] = cleanMargin(value || '');
+          } else if (colName === 'final_amt') {
+            out[colName] = cleanFinalAmt(value || '');
+          } else if (colName === 'rev') {
+            out[colName] = cleanNumeric(value || '');
+          } else if (colName === 'client_deadline') {
+            const originalValue = value || '';
+            const cleanedValue = cleanClientDeadline(originalValue);
+            const formattedValue = formatDate(cleanedValue);
+            out[colName] = formattedValue;
+            
+            if (originalValue && !formattedValue) {
+              dateIssues.push(`Row ${rowIndex + 1}: "${originalValue}" in client_deadline`);
+            }
+          } else if (colName.includes('date')) {
+            const originalValue = value || '';
+            const formattedValue = formatDate(originalValue);
+            out[colName] = formattedValue;
+            
+            if (originalValue && !formattedValue) {
+              dateIssues.push(`Row ${rowIndex + 1}: "${originalValue}" in ${colName}`);
+            }
+          } else {
+            out[colName] = (value || '').toString().trim();
+          }
+        });
+        
+        return out;
+      });
+
+      // Convert to CSV without headers (database import expects data only)
+      const csv = Papa.unparse(processed, {columns: schema, header: false});
+      
+      // Create download
+      const blob = new Blob([csv], {type: 'text/csv'});
+      const url = URL.createObjectURL(blob);
+      const link = document.getElementById('downloadLink');
+      link.href = url;
+      link.download = 'formatted_opps_monitoring.csv';
+      link.style.display = 'block';
+      link.textContent = `Download formatted CSV (${processed.length} rows)`;
+      
+      // Show results
+      let statusMessage = `
+        <div style="margin-top: 10px; padding: 15px; background: #f0f9ff; border: 1px solid #38bdf8; border-radius: 4px;">
+          <strong>✅ Processing Complete!</strong><br>
+          📋 Total records processed: ${processedRows}<br>
+          🆕 New UIDs generated: ${newUidCount}<br>
+          💾 Ready for database import
+        </div>
+      `;
+      
+      if (dateIssues.length > 0) {
+        statusMessage += `
+          <div style="margin-top: 10px; padding: 15px; background: #fef3cd; border: 1px solid #f59e0b; border-radius: 4px;">
+            <strong>⚠️ Date Format Issues Found (${dateIssues.length}):</strong><br>
+            <small>These dates were set to blank:</small>
+            <ul style="margin: 5px 0 0 20px; font-family: monospace; font-size: 12px;">
+              ${dateIssues.slice(0, 10).map(issue => `<li>${issue}</li>`).join('')}
+              ${dateIssues.length > 10 ? `<li>... and ${dateIssues.length - 10} more</li>` : ''}
+            </ul>
+          </div>
+        `;
+      }
+      
+      document.getElementById('message').innerHTML = statusMessage;
+    });
+    
+    // Initialize page
+    document.addEventListener('DOMContentLoaded', function() {
+      checkAuthenticationStatus();
+    });
+    
+    function checkAuthenticationStatus() {
+      const authStatusDiv = document.getElementById('authStatus');
+      authToken = localStorage.getItem('authToken');
+      
+      if (!authToken) {
+        authStatusDiv.innerHTML = `
+          <div style="background: #fef2f2; color: #dc2626; border: 1px solid #fecaca;">
+            ❌ <strong>Not authenticated.</strong> Please <a href="index.html" style="color: #dc2626; text-decoration: underline;">login</a> first to access the system.
+          </div>
+        `;
+        document.getElementById('csvFile').disabled = true;
+        return;
+      }
+      
+      authStatusDiv.innerHTML = `
+        <div style="background: #f0f9ff; color: #1e40af; border: 1px solid #93c5fd;">
+          ✅ <strong>Ready to process CSV files</strong> - Fixed version with improved date handling
+        </div>
+      `;
+      document.getElementById('csvFile').disabled = false;
+    }
+  </script>
+</body>
+</html>

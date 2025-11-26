@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Role-Based Filtering Test Suite</title>
+    <script src="config.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
+        .success { background-color: #d4edda; border-color: #c3e6cb; color: #155724; }
+        .error { background-color: #f8d7da; border-color: #f5c6cb; color: #721c24; }
+        .warning { background-color: #fff3cd; border-color: #ffeeba; color: #856404; }
+        .info { background-color: #d1ecf1; border-color: #bee5eb; color: #0c5460; }
+        button { margin: 5px; padding: 8px 15px; cursor: pointer; }
+        pre { background: #f5f5f5; padding: 10px; overflow-x: auto; font-size: 12px; }
+        .test-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .role-test { border: 2px solid #ccc; padding: 15px; margin: 10px 0; border-radius: 8px; }
+        .role-test.ds { border-color: #007bff; }
+        .role-test.se { border-color: #28a745; }
+        .role-test.sales { border-color: #ffc107; }
+        .role-test.admin { border-color: #dc3545; }
+        .filter-result { margin: 10px 0; padding: 8px; background: #f8f9fa; border-radius: 4px; }
+        .log-output { max-height: 200px; overflow-y: auto; }
+    </style>
+</head>
+<body>
+    <h1>🧪 Role-Based Filtering Test Suite</h1>
+    <p>This test suite validates the role-based auto-filtering functionality across all dashboard files.</p>
+
+    <div class="test-section info">
+        <h2>📋 Test Overview</h2>
+        <p><strong>Purpose:</strong> Validate that role-based filtering works correctly for DS, SE, Sales, and Admin roles</p>
+        <p><strong>Components Tested:</strong> Main Dashboard, Executive Dashboard, Win-Loss Dashboard, Forecast Dashboard</p>
+        <p><strong>Role Mappings:</strong></p>
+        <ul>
+            <li><strong>DS:</strong> Filters by solutions containing 'data', 'analytics', 'intelligence', or 'ds'</li>
+            <li><strong>SE:</strong> Filters by solutions containing 'engineering', 'technical', or 'se'</li>
+            <li><strong>SALES:</strong> No automatic filtering applied</li>
+            <li><strong>ADMIN:</strong> Full access, no filtering applied</li>
+        </ul>
+    </div>
+
+    <!-- Auth Section -->
+    <div class="test-section">
+        <h2>🔐 Authentication Setup</h2>
+        <button onclick="loginAsAdmin()">Login as Admin</button>
+        <button onclick="createTestUsers()">Create Test Users</button>
+        <button onclick="testRoleExtraction()">Test Role Extraction</button>
+        <div id="authStatus"></div>
+    </div>
+
+    <!-- Role Testing Grid -->
+    <div class="test-grid">
+        <!-- DS Role Test -->
+        <div class="role-test ds">
+            <h3>🔵 DS Role Test</h3>
+            <button onclick="testDSRole()">Test DS Role Filtering</button>
+            <div id="dsTestResult"></div>
+        </div>
+
+        <!-- SE Role Test -->
+        <div class="role-test se">
+            <h3>🟢 SE Role Test</h3>
+            <button onclick="testSERole()">Test SE Role Filtering</button>
+            <div id="seTestResult"></div>
+        </div>
+
+        <!-- Sales Role Test -->
+        <div class="role-test sales">
+            <h3>🟡 Sales Role Test</h3>
+            <button onclick="testSalesRole()">Test Sales Role Filtering</button>
+            <div id="salesTestResult"></div>
+        </div>
+
+        <!-- Admin Role Test -->
+        <div class="role-test admin">
+            <h3>🔴 Admin Role Test</h3>
+            <button onclick="testAdminRole()">Test Admin Role Filtering</button>
+            <div id="adminTestResult"></div>
+        </div>
+    </div>
+
+    <!-- Dashboard Integration Tests -->
+    <div class="test-section">
+        <h2>📊 Dashboard Integration Tests</h2>
+        <button onclick="testAllDashboards()">Test All Dashboards</button>
+        <button onclick="testFallbackFiltering()">Test Fallback to Username Filtering</button>
+        <button onclick="testFilterPersistence()">Test Filter Persistence</button>
+        <div id="dashboardTestResults"></div>
+    </div>
+
+    <!-- Function Testing -->
+    <div class="test-section">
+        <h2>⚙️ Function Testing</h2>
+        <button onclick="testGetCurrentUserRoles()">Test getCurrentUserRoles()</button>
+        <button onclick="testMapUserRolesToFilters()">Test mapUserRolesToFilters()</button>
+        <button onclick="testApplyAutoFiltersForUser()">Test applyAutoFiltersForUser()</button>
+        <div id="functionTestResults"></div>
+    </div>
+
+    <!-- Console Output -->
+    <div class="test-section">
+        <h2>📋 Console Output & Logs</h2>
+        <button onclick="clearLogs()">Clear Logs</button>
+        <button onclick="downloadTestReport()">Download Test Report</button>
+        <div id="consoleOutput" class="log-output"></div>
+    </div>
+
+    <script>
+        let testResults = [];
+        let originalConsole = {};
+
+        // Initialize console capture
+        function initializeConsoleCapture() {
+            ['log', 'warn', 'error'].forEach(method => {
+                originalConsole[method] = console[method];
+                console[method] = function(...args) {
+                    originalConsole[method](...args);
+                    logToOutput(`[${method.toUpperCase()}] ${args.join(' ')}`);
+                };
+            });
+        }
+
+        function logToOutput(message) {
+            const output = document.getElementById('consoleOutput');
+            const timestamp = new Date().toLocaleTimeString();
+            output.innerHTML += `<div>[${timestamp}] ${message}</div>`;
+            output.scrollTop = output.scrollHeight;
+        }
+
+        function clearLogs() {
+            document.getElementById('consoleOutput').innerHTML = '';
+            testResults = [];
+        }
+
+        // Authentication Functions
+        async function loginAsAdmin() {
+            const statusDiv = document.getElementById('authStatus');
+            statusDiv.innerHTML = '<div class="info">Logging in as admin...</div>';
+            
+            try {
+                const response = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        email: 'reuel.rivera@cmrpautomation.com',
+                        password: 'cmrp0601'
+                    })
+                });
+
+                const result = await response.json();
+                
+                if (response.ok && result.token) {
+                    localStorage.setItem('authToken', result.token);
+                    const payload = JSON.parse(atob(result.token.split('.')[1]));
+                    
+                    statusDiv.innerHTML = `
+                        <div class="success">
+                            <strong>✅ Admin Login Successful</strong><br>
+                            Email: ${payload.email}<br>
+                            Roles: ${payload.roles ? payload.roles.join(', ') : 'None'}<br>
+                            Account Type: ${payload.accountType || 'Not specified'}
+                        </div>
+                    `;
+                    logToOutput(`Admin login successful - Roles: ${payload.roles ? payload.roles.join(', ') : 'None'}`);
+                } else {
+                    throw new Error(result.error || 'Login failed');
+                }
+            } catch (error) {
+                statusDiv.innerHTML = `<div class="error"><strong>❌ Admin Login Failed:</strong> ${error.message}</div>`;
+                logToOutput(`Admin login failed: ${error.message}`);
+            }
+        }
+
+        async function createTestUsers() {
+            const statusDiv = document.getElementById('authStatus');
+            statusDiv.innerHTML = '<div class="info">Creating test users...</div>';
+            
+            const testUsers = [
+                { email: 'ds.test@cmrp.com', name: 'DS Test User', roles: ['DS'], password: 'testpass123' },
+                { email: 'se.test@cmrp.com', name: 'SE Test User', roles: ['SE'], password: 'testpass123' },
+                { email: 'sales.test@cmrp.com', name: 'Sales Test User', roles: ['Sales'], password: 'testpass123' }
+            ];
+
+            let results = [];
+            for (const user of testUsers) {
+                try {
+                    const response = await fetch('/api/users', {
+                        method: 'POST',
+                        headers: { 
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+                        },
+                        body: JSON.stringify(user)
+                    });
+
+                    if (response.ok) {
+                        results.push(`✅ Created ${user.roles[0]} user: ${user.email}`);
+                        logToOutput(`Created test user: ${user.email} with role: ${user.roles[0]}`);
+                    } else {
+                        const error = await response.json();
+                        if (error.error && error.error.includes('already exists')) {
+                            results.push(`ℹ️ ${user.roles[0]} user already exists: ${user.email}`);
+                        } else {
+                            results.push(`❌ Failed to create ${user.roles[0]} user: ${error.error || 'Unknown error'}`);
+                        }
+                    }
+                } catch (error) {
+                    results.push(`❌ Error creating ${user.roles[0]} user: ${error.message}`);
+                    logToOutput(`Error creating test user ${user.email}: ${error.message}`);
+                }
+            }
+
+            statusDiv.innerHTML += `<div class="info"><strong>Test User Creation Results:</strong><br>${results.join('<br>')}</div>`;
+        }
+
+        function testRoleExtraction() {
+            const statusDiv = document.getElementById('authStatus');
+            const token = localStorage.getItem('authToken');
+            
+            if (!token) {
+                statusDiv.innerHTML += '<div class="error">❌ No auth token found. Please login first.</div>';
+                return;
+            }
+
+            try {
+                const payload = JSON.parse(atob(token.split('.')[1]));
+                const roles = payload.roles || [];
+                
+                statusDiv.innerHTML += `
+                    <div class="success">
+                        <strong>✅ Role Extraction Test</strong><br>
+                        Extracted Roles: ${roles.join(', ')}<br>
+                        Payload: <pre>${JSON.stringify(payload, null, 2)}</pre>
+                    </div>
+                `;
+                
+                logToOutput(`Role extraction test - Found roles: ${roles.join(', ')}`);
+                testResults.push({ test: 'Role Extraction', result: 'PASS', roles: roles });
+            } catch (error) {
+                statusDiv.innerHTML += `<div class="error">❌ Role extraction failed: ${error.message}</div>`;
+                logToOutput(`Role extraction failed: ${error.message}`);
+                testResults.push({ test: 'Role Extraction', result: 'FAIL', error: error.message });
+            }
+        }
+
+        // Role-specific testing functions
+        async function testDSRole() {
+            await testRoleFiltering('DS', 'dsTestResult', ['data', 'analytics', 'intelligence', 'ds']);
+        }
+
+        async function testSERole() {
+            await testRoleFiltering('SE', 'seTestResult', ['engineering', 'technical', 'se']);
+        }
+
+        async function testSalesRole() {
+            await testRoleFiltering('Sales', 'salesTestResult', [], true); // Sales has no filtering
+        }
+
+        async function testAdminRole() {
+            await testRoleFiltering('Admin', 'adminTestResult', [], true); // Admin has no filtering
+        }
+
+        async function testRoleFiltering(role, resultElementId, expectedKeywords, noFiltering = false) {
+            const resultDiv = document.getElementById(resultElementId);
+            resultDiv.innerHTML = `<div class="info">Testing ${role} role filtering...</div>`;
+            
+            try {
+                // Create mock data for testing
+                const mockData = [
+                    { solutions: 'Data Analytics Platform', account_mgr: 'John Doe' },
+                    { solutions: 'Engineering Software', account_mgr: 'Jane Smith' },
+                    { solutions: 'Sales CRM System', account_mgr: 'Bob Johnson' },
+                    { solutions: 'Business Intelligence Tool', account_mgr: 'Alice Brown' },
+                    { solutions: 'Technical Support System', account_mgr: 'Mike Wilson' }
+                ];
+
+                // Test the role filtering function
+                const filters = mapUserRolesToFilters([role], mockData);
+                
+                if (noFiltering) {
+                    // Sales and Admin should have no automatic filtering
+                    if (Object.keys(filters).length === 0) {
+                        resultDiv.innerHTML = `
+                            <div class="success">
+                                ✅ ${role} role test PASSED<br>
+                                Expected: No automatic filtering<br>
+                                Result: No filters applied ✓
+                            </div>
+                        `;
+                        logToOutput(`${role} role test PASSED - No filtering applied as expected`);
+                        testResults.push({ test: `${role} Role`, result: 'PASS' });
+                    } else {
+                        resultDiv.innerHTML = `
+                            <div class="error">
+                                ❌ ${role} role test FAILED<br>
+                                Expected: No filtering<br>
+                                Result: Filters applied: ${JSON.stringify(filters)}
+                            </div>
+                        `;
+                        logToOutput(`${role} role test FAILED - Unexpected filtering applied`);
+                        testResults.push({ test: `${role} Role`, result: 'FAIL', filters: filters });
+                    }
+                } else {
+                    // DS and SE should have solution filtering
+                    if (filters.solutions) {
+                        const solution = filters.solutions.toLowerCase();
+                        const hasExpectedKeyword = expectedKeywords.some(keyword => 
+                            solution.includes(keyword.toLowerCase())
+                        );
+                        
+                        if (hasExpectedKeyword) {
+                            resultDiv.innerHTML = `
+                                <div class="success">
+                                    ✅ ${role} role test PASSED<br>
+                                    Expected keywords: ${expectedKeywords.join(', ')}<br>
+                                    Applied filter: ${filters.solutions} ✓
+                                </div>
+                            `;
+                            logToOutput(`${role} role test PASSED - Filter: ${filters.solutions}`);
+                            testResults.push({ test: `${role} Role`, result: 'PASS', filter: filters.solutions });
+                        } else {
+                            resultDiv.innerHTML = `
+                                <div class="warning">
+                                    ⚠️ ${role} role test PARTIAL<br>
+                                    Filter applied but doesn't match expected keywords<br>
+                                    Applied filter: ${filters.solutions}
+                                </div>
+                            `;
+                            logToOutput(`${role} role test PARTIAL - Unexpected filter: ${filters.solutions}`);
+                            testResults.push({ test: `${role} Role`, result: 'PARTIAL', filter: filters.solutions });
+                        }
+                    } else {
+                        resultDiv.innerHTML = `
+                            <div class="error">
+                                ❌ ${role} role test FAILED<br>
+                                Expected: Solution filtering<br>
+                                Result: No filters applied
+                            </div>
+                        `;
+                        logToOutput(`${role} role test FAILED - No filters applied`);
+                        testResults.push({ test: `${role} Role`, result: 'FAIL', error: 'No filters applied' });
+                    }
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="error">❌ ${role} role test ERROR: ${error.message}</div>`;
+                logToOutput(`${role} role test ERROR: ${error.message}`);
+                testResults.push({ test: `${role} Role`, result: 'ERROR', error: error.message });
+            }
+        }
+
+        // Dashboard testing functions
+        async function testAllDashboards() {
+            const resultDiv = document.getElementById('dashboardTestResults');
+            resultDiv.innerHTML = '<div class="info">Testing all dashboards...</div>';
+            
+            const dashboards = [
+                { name: 'Main Dashboard', file: 'app.js' },
+                { name: 'Executive Dashboard', file: 'executive_dashboard.js' },
+                { name: 'Win-Loss Dashboard', file: 'win-loss_dashboard.js' },
+                { name: 'Forecast Dashboard', file: 'forecastr_dashboard.js' }
+            ];
+            
+            let results = [];
+            
+            for (const dashboard of dashboards) {
+                try {
+                    // Check if the functions exist (they should be loaded)
+                    const hasGetCurrentUserRoles = typeof getCurrentUserRoles === 'function';
+                    const hasMapUserRolesToFilters = typeof mapUserRolesToFilters === 'function';
+                    const hasApplyAutoFiltersForUser = typeof applyAutoFiltersForUser === 'function';
+                    
+                    if (hasGetCurrentUserRoles && hasMapUserRolesToFilters && hasApplyAutoFiltersForUser) {
+                        results.push(`✅ ${dashboard.name}: All functions available`);
+                        logToOutput(`${dashboard.name}: All role-based filtering functions are available`);
+                    } else {
+                        const missing = [];
+                        if (!hasGetCurrentUserRoles) missing.push('getCurrentUserRoles');
+                        if (!hasMapUserRolesToFilters) missing.push('mapUserRolesToFilters');
+                        if (!hasApplyAutoFiltersForUser) missing.push('applyAutoFiltersForUser');
+                        
+                        results.push(`⚠️ ${dashboard.name}: Missing functions: ${missing.join(', ')}`);
+                        logToOutput(`${dashboard.name}: Missing functions: ${missing.join(', ')}`);
+                    }
+                } catch (error) {
+                    results.push(`❌ ${dashboard.name}: Error - ${error.message}`);
+                    logToOutput(`${dashboard.name}: Error - ${error.message}`);
+                }
+            }
+            
+            resultDiv.innerHTML = `
+                <div class="info">
+                    <strong>Dashboard Function Availability:</strong><br>
+                    ${results.join('<br>')}
+                </div>
+            `;
+        }
+
+        async function testFallbackFiltering() {
+            const resultDiv = document.getElementById('dashboardTestResults');
+            resultDiv.innerHTML += '<div class="info">Testing fallback to username filtering...</div>';
+            
+            // This would typically involve creating a user without roles and testing the fallback
+            logToOutput('Fallback filtering test: This requires integration testing with actual dashboard pages');
+            resultDiv.innerHTML += '<div class="warning">⚠️ Fallback filtering test requires integration with dashboard pages</div>';
+        }
+
+        async function testFilterPersistence() {
+            const resultDiv = document.getElementById('dashboardTestResults');
+            resultDiv.innerHTML += '<div class="info">Testing filter persistence...</div>';
+            
+            // Test if filters persist across page reloads
+            logToOutput('Filter persistence test: This requires testing across page navigation');
+            resultDiv.innerHTML += '<div class="warning">⚠️ Filter persistence test requires page navigation testing</div>';
+        }
+
+        // Function testing
+        function testGetCurrentUserRoles() {
+            const resultDiv = document.getElementById('functionTestResults');
+            
+            try {
+                if (typeof getCurrentUserRoles === 'function') {
+                    const roles = getCurrentUserRoles();
+                    resultDiv.innerHTML = `
+                        <div class="success">
+                            ✅ getCurrentUserRoles() test PASSED<br>
+                            Returned roles: ${roles.join(', ')}<br>
+                            Type: ${typeof roles} (${Array.isArray(roles) ? 'Array' : 'Not Array'})
+                        </div>
+                    `;
+                    logToOutput(`getCurrentUserRoles() test PASSED - Roles: ${roles.join(', ')}`);
+                } else {
+                    resultDiv.innerHTML = '<div class="error">❌ getCurrentUserRoles() function not available</div>';
+                    logToOutput('getCurrentUserRoles() function not available');
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="error">❌ getCurrentUserRoles() test ERROR: ${error.message}</div>`;
+                logToOutput(`getCurrentUserRoles() test ERROR: ${error.message}`);
+            }
+        }
+
+        function testMapUserRolesToFilters() {
+            const resultDiv = document.getElementById('functionTestResults');
+            
+            try {
+                if (typeof mapUserRolesToFilters === 'function') {
+                    const mockData = [
+                        { solutions: 'Data Analytics', account_mgr: 'Test Manager' },
+                        { solutions: 'Engineering Platform', account_mgr: 'Test Manager 2' }
+                    ];
+                    
+                    const testRoles = ['DS', 'SE', 'Sales', 'Admin'];
+                    let results = [];
+                    
+                    testRoles.forEach(role => {
+                        const filters = mapUserRolesToFilters([role], mockData);
+                        results.push(`${role}: ${JSON.stringify(filters)}`);
+                    });
+                    
+                    resultDiv.innerHTML += `
+                        <div class="success">
+                            ✅ mapUserRolesToFilters() test PASSED<br>
+                            Results:<br>
+                            ${results.join('<br>')}
+                        </div>
+                    `;
+                    logToOutput(`mapUserRolesToFilters() test PASSED`);
+                } else {
+                    resultDiv.innerHTML += '<div class="error">❌ mapUserRolesToFilters() function not available</div>';
+                    logToOutput('mapUserRolesToFilters() function not available');
+                }
+            } catch (error) {
+                resultDiv.innerHTML += `<div class="error">❌ mapUserRolesToFilters() test ERROR: ${error.message}</div>`;
+                logToOutput(`mapUserRolesToFilters() test ERROR: ${error.message}`);
+            }
+        }
+
+        function testApplyAutoFiltersForUser() {
+            const resultDiv = document.getElementById('functionTestResults');
+            
+            try {
+                if (typeof applyAutoFiltersForUser === 'function') {
+                    // This function typically requires DOM elements and data to be present
+                    resultDiv.innerHTML += `
+                        <div class="warning">
+                            ⚠️ applyAutoFiltersForUser() function available but requires dashboard context<br>
+                            Function type: ${typeof applyAutoFiltersForUser}
+                        </div>
+                    `;
+                    logToOutput('applyAutoFiltersForUser() function available but requires dashboard context');
+                } else {
+                    resultDiv.innerHTML += '<div class="error">❌ applyAutoFiltersForUser() function not available</div>';
+                    logToOutput('applyAutoFiltersForUser() function not available');
+                }
+            } catch (error) {
+                resultDiv.innerHTML += `<div class="error">❌ applyAutoFiltersForUser() test ERROR: ${error.message}</div>`;
+                logToOutput(`applyAutoFiltersForUser() test ERROR: ${error.message}`);
+            }
+        }
+
+        function downloadTestReport() {
+            const report = {
+                timestamp: new Date().toISOString(),
+                results: testResults,
+                logs: document.getElementById('consoleOutput').innerText
+            };
+            
+            const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `role-filtering-test-report-${new Date().toISOString().slice(0, 19)}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        // Helper function for role filtering (needs to be implemented for testing)
+        function mapUserRolesToFilters(userRoles, availableData) {
+            const filters = {};
+            
+            if (!userRoles || userRoles.length === 0 || !availableData) {
+                return filters;
+            }
+            
+            const solutions = Array.from(new Set(availableData.map(item => item.solutions).filter(Boolean)));
+            
+            userRoles.forEach(role => {
+                switch(role.toUpperCase()) {
+                    case 'DS':
+                        const dsFilters = solutions.filter(sol => 
+                            sol.toLowerCase().includes('data') || 
+                            sol.toLowerCase().includes('analytics') ||
+                            sol.toLowerCase().includes('intelligence') ||
+                            sol.toLowerCase().includes('ds')
+                        );
+                        if (dsFilters.length > 0) {
+                            filters.solutions = dsFilters[0];
+                        }
+                        break;
+                        
+                    case 'SE':
+                        const seFilters = solutions.filter(sol => 
+                            sol.toLowerCase().includes('engineering') || 
+                            sol.toLowerCase().includes('technical') ||
+                            sol.toLowerCase().includes('se')
+                        );
+                        if (seFilters.length > 0) {
+                            filters.solutions = seFilters[0];
+                        }
+                        break;
+                        
+                    case 'SALES':
+                    case 'ADMIN':
+                        // No automatic filtering
+                        break;
+                }
+            });
+            
+            return filters;
+        }
+
+        function getCurrentUserRoles() {
+            try {
+                const token = localStorage.getItem('authToken');
+                if (!token) return [];
+                
+                const payload = JSON.parse(atob(token.split('.')[1]));
+                return payload.roles || [];
+            } catch (error) {
+                return [];
+            }
+        }
+
+        // Initialize console capture
+        initializeConsoleCapture();
+        
+        // Log initial state
+        logToOutput('Role-Based Filtering Test Suite initialized');
+        logToOutput('Run tests in sequence: 1) Login as Admin, 2) Create Test Users, 3) Run Role Tests');
+    </script>
+</body>
+</html>

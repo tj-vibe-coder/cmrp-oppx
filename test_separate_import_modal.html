@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Separate Import Modal Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .success {
+            background-color: #d4edda;
+            border-color: #c3e6cb;
+            color: #155724;
+        }
+        .info {
+            background-color: #d1ecf1;
+            border-color: #bee5eb;
+            color: #0c5460;
+        }
+        .warning {
+            background-color: #fff3cd;
+            border-color: #ffeaa7;
+            color: #856404;
+        }
+        .test-button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        .test-button:hover {
+            background-color: #0056b3;
+        }
+        pre {
+            background-color: #f8f9fa;
+            padding: 10px;
+            border-radius: 3px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>🚀 Separate Import Modal Implementation Test</h1>
+    
+    <div class="test-section success">
+        <h3>✅ Implementation Complete</h3>
+        <p><strong>The separate modal approach has been successfully implemented!</strong></p>
+        
+        <h4>Key Changes Made:</h4>
+        <ul>
+            <li>✅ Created dedicated Google Drive Import Modal (separate from Create modal)</li>
+            <li>✅ Replaced import tab with "Import from Google Drive" button in Create modal header</li>
+            <li>✅ Modified import flow: Import Modal → Close → Open Create Modal with populated data</li>
+            <li>✅ Enhanced field population with error handling and debugging</li>
+            <li>✅ Added proper body scroll locking for both modals</li>
+        </ul>
+    </div>
+
+    <div class="test-section info">
+        <h3>🔄 New User Flow</h3>
+        <ol>
+            <li><strong>User clicks "Create New Opportunity"</strong> → Opens Create modal</li>
+            <li><strong>User clicks "Import from Google Drive" button</strong> → Opens Import modal</li>
+            <li><strong>User searches and selects a folder</strong> → Shows preview in Import modal</li>
+            <li><strong>User clicks "Create Opportunity"</strong> → Closes Import modal</li>
+            <li><strong>Opens fresh Create modal</strong> → All fields populated with imported data</li>
+            <li><strong>Full scrolling capability</strong> → No more restricted modal height!</li>
+        </ol>
+    </div>
+
+    <div class="test-section warning">
+        <h3>📝 Testing Instructions</h3>
+        <p>To test the new implementation:</p>
+        
+        <ol>
+            <li><strong>Open Main Application:</strong>
+                <button class="test-button" onclick="openMainApp()">Open Main App</button>
+            </li>
+            <li><strong>Test Import Modal:</strong>
+                <ul>
+                    <li>Click "Create New Opportunity"</li>
+                    <li>Click the green "Import from Google Drive" button in the header</li>
+                    <li>Verify the import modal opens (should be wider with full content)</li>
+                    <li>Search for a folder and import data</li>
+                </ul>
+            </li>
+            <li><strong>Test Field Population:</strong>
+                <ul>
+                    <li>After clicking "Create Opportunity" in import modal</li>
+                    <li>Verify import modal closes automatically</li>
+                    <li>Verify Create modal opens with populated fields</li>
+                    <li>Verify you can scroll up and down freely</li>
+                </ul>
+            </li>
+            <li><strong>Test Modal Behavior:</strong>
+                <ul>
+                    <li>Background should not scroll when modals are open</li>
+                    <li>Modal content should scroll independently</li>
+                    <li>ESC key should close modals</li>
+                    <li>Click outside modal should close them</li>
+                </ul>
+            </li>
+        </ol>
+    </div>
+
+    <div class="test-section info">
+        <h3>🔍 Debugging Information</h3>
+        <p>Check browser console for these debug messages:</p>
+        <pre>🔒 Body scroll locked for Google Drive import modal
+📜 Import modal body scroll enabled
+✅ Using imported data to create new opportunity
+🔓 Body scroll restored after closing import modal
+🔒 Body scroll locked for create opportunity modal
+📜 Modal body scroll enabled
+✅ Set Project Name: [value]
+✅ Set Project Code: [value]
+✅ Form population complete: X/Y fields successfully populated
+📜 Create modal scrolled to top after import
+🎯 Focus set on first input field in create modal</pre>
+    </div>
+
+    <div class="test-section success">
+        <h3>🎯 Expected Results</h3>
+        <table style="width: 100%; border-collapse: collapse;">
+            <tr style="background-color: #f8f9fa;">
+                <th style="padding: 8px; border: 1px solid #ddd;">Test</th>
+                <th style="padding: 8px; border: 1px solid #ddd;">Expected Result</th>
+            </tr>
+            <tr>
+                <td style="padding: 8px; border: 1px solid #ddd;">Import Modal Opening</td>
+                <td style="padding: 8px; border: 1px solid #ddd;">Modal opens with full width (900px), proper content scrolling</td>
+            </tr>
+            <tr>
+                <td style="padding: 8px; border: 1px solid #ddd;">Background Scroll</td>
+                <td style="padding: 8px; border: 1px solid #ddd;">Background page cannot scroll when modal is open</td>
+            </tr>
+            <tr>
+                <td style="padding: 8px; border: 1px solid #ddd;">Import Process</td>
+                <td style="padding: 8px; border: 1px solid #ddd;">Search → Preview → Close Import → Open Create with populated fields</td>
+            </tr>
+            <tr>
+                <td style="padding: 8px; border: 1px solid #ddd;">Field Population</td>
+                <td style="padding: 8px; border: 1px solid #ddd;">All available fields populated, dropdowns set correctly</td>
+            </tr>
+            <tr>
+                <td style="padding: 8px; border: 1px solid #ddd;">Create Modal Scrolling</td>
+                <td style="padding: 8px; border: 1px solid #ddd;">Full scrolling capability, modal scrolls to top after import</td>
+            </tr>
+            <tr>
+                <td style="padding: 8px; border: 1px solid #ddd;">Modal Cleanup</td>
+                <td style="padding: 8px; border: 1px solid #ddd;">Body scroll restored when all modals closed</td>
+            </tr>
+        </table>
+    </div>
+
+    <div class="test-section info">
+        <h3>⚙️ Technical Implementation</h3>
+        <h4>New Functions Added:</h4>
+        <ul>
+            <li><code>showGoogleDriveImportModal()</code> - Opens the import modal</li>
+            <li><code>hideGoogleDriveImportModal()</code> - Closes the import modal</li>
+            <li><code>resetGoogleDriveImportModal()</code> - Resets modal state</li>
+            <li><code>performImportModalFolderSearch()</code> - Handles search in import modal</li>
+            <li><code>handleImportFromManualFolder()</code> - Manual folder import</li>
+        </ul>
+        
+        <h4>Enhanced Functions:</h4>
+        <ul>
+            <li><code>confirmImportAndCreateOpportunity()</code> - Now closes import modal and opens fresh create modal</li>
+            <li><code>populateCreateFormWithImportedData()</code> - Enhanced with error handling and debugging</li>
+            <li><code>displayImportPreview()</code> - Updated to use new import modal element IDs</li>
+        </ul>
+    </div>
+
+    <script>
+        function openMainApp() {
+            window.open('/', '_blank');
+        }
+        
+        // Log test page load
+        console.log('🧪 Separate Import Modal test page loaded');
+        console.log('🔍 Open main application to test the new separate modal implementation');
+        console.log('📱 The import flow should now be: Import Modal → Close → Create Modal with populated fields');
+    </script>
+</body>
+</html>

@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Integration Test</title>
+    <script src="config.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
+        .success { background-color: #d4edda; border-color: #c3e6cb; color: #155724; }
+        .error { background-color: #f8d7da; border-color: #f5c6cb; color: #721c24; }
+        .warning { background-color: #fff3cd; border-color: #ffeeba; color: #856404; }
+        .info { background-color: #d1ecf1; border-color: #bee5eb; color: #0c5460; }
+        button { margin: 5px; padding: 8px 15px; cursor: pointer; }
+        iframe { width: 100%; height: 500px; border: 1px solid #ccc; margin: 10px 0; }
+        .dashboard-test { border: 2px solid #007bff; padding: 15px; margin: 10px 0; border-radius: 8px; }
+        pre { background: #f5f5f5; padding: 10px; overflow-x: auto; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <h1>🧪 Dashboard Integration Test Suite</h1>
+    <p>This test suite validates role-based filtering integration across all dashboard pages.</p>
+
+    <!-- Auth Setup -->
+    <div class="test-section">
+        <h2>🔐 Authentication Setup</h2>
+        <button onclick="setupTestEnvironment()">Setup Test Environment</button>
+        <button onclick="loginWithTestRole('DS')">Login as DS User</button>
+        <button onclick="loginWithTestRole('SE')">Login as SE User</button>
+        <button onclick="loginWithTestRole('Sales')">Login as Sales User</button>
+        <button onclick="loginAsAdmin()">Login as Admin</button>
+        <div id="authStatus"></div>
+    </div>
+
+    <!-- Dashboard Tests -->
+    <div class="test-section">
+        <h2>📊 Dashboard Integration Tests</h2>
+        
+        <div class="dashboard-test">
+            <h3>Main Dashboard (app.js)</h3>
+            <button onclick="testDashboard('index.html', 'mainDashboard')">Test Main Dashboard</button>
+            <div id="mainDashboardResult"></div>
+        </div>
+
+        <div class="dashboard-test">
+            <h3>Executive Dashboard</h3>
+            <button onclick="testDashboard('executive_dashboard.html', 'executiveDashboard')">Test Executive Dashboard</button>
+            <div id="executiveDashboardResult"></div>
+        </div>
+
+        <div class="dashboard-test">
+            <h3>Win-Loss Dashboard</h3>
+            <button onclick="testDashboard('win-loss_dashboard.html', 'winLossDashboard')">Test Win-Loss Dashboard</button>
+            <div id="winLossDashboardResult"></div>
+        </div>
+
+        <div class="dashboard-test">
+            <h3>Forecast Dashboard</h3>
+            <button onclick="testDashboard('forecastr_dashboard.html', 'forecastDashboard')">Test Forecast Dashboard</button>
+            <div id="forecastDashboardResult"></div>
+        </div>
+    </div>
+
+    <!-- Real-time Console Monitoring -->
+    <div class="test-section">
+        <h2>📋 Console Monitoring</h2>
+        <button onclick="startConsoleMonitoring()">Start Console Monitoring</button>
+        <button onclick="stopConsoleMonitoring()">Stop Console Monitoring</button>
+        <div id="consoleMonitor" style="max-height: 300px; overflow-y: auto; background: #f8f9fa; padding: 10px;"></div>
+    </div>
+
+    <!-- Test Report -->
+    <div class="test-section">
+        <h2>📄 Test Report</h2>
+        <button onclick="generateTestReport()">Generate Test Report</button>
+        <div id="testReport"></div>
+    </div>
+
+    <script>
+        let testResults = [];
+        let consoleMonitorInterval;
+
+        // Authentication Functions
+        async function setupTestEnvironment() {
+            const statusDiv = document.getElementById('authStatus');
+            statusDiv.innerHTML = '<div class="info">Setting up test environment...</div>';
+            
+            try {
+                // First login as admin
+                await loginAsAdmin();
+                
+                // Create test users with specific roles
+                const testUsers = [
+                    { email: 'ds.test@cmrp.com', name: 'DS Test User', roles: ['DS'], password: 'testpass123' },
+                    { email: 'se.test@cmrp.com', name: 'SE Test User', roles: ['SE'], password: 'testpass123' },
+                    { email: 'sales.test@cmrp.com', name: 'Sales Test User', roles: ['Sales'], password: 'testpass123' }
+                ];
+
+                let results = [];
+                for (const user of testUsers) {
+                    try {
+                        const response = await fetch('/api/users', {
+                            method: 'POST',
+                            headers: { 
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+                            },
+                            body: JSON.stringify(user)
+                        });
+
+                        if (response.ok) {
+                            results.push(`✅ Created ${user.roles[0]} user`);
+                        } else {
+                            const error = await response.json();
+                            if (error.error && error.error.includes('already exists')) {
+                                results.push(`ℹ️ ${user.roles[0]} user already exists`);
+                            } else {
+                                results.push(`❌ Failed to create ${user.roles[0]} user`);
+                            }
+                        }
+                    } catch (error) {
+                        results.push(`❌ Error creating ${user.roles[0]} user`);
+                    }
+                }
+
+                statusDiv.innerHTML += `<div class="success"><strong>Environment Setup Complete:</strong><br>${results.join('<br>')}</div>`;
+                
+            } catch (error) {
+                statusDiv.innerHTML += `<div class="error">❌ Setup failed: ${error.message}</div>`;
+            }
+        }
+
+        async function loginAsAdmin() {
+            const statusDiv = document.getElementById('authStatus');
+            
+            try {
+                const response = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        email: 'reuel.rivera@cmrpautomation.com',
+                        password: 'cmrp0601'
+                    })
+                });
+
+                const result = await response.json();
+                
+                if (response.ok && result.token) {
+                    localStorage.setItem('authToken', result.token);
+                    const payload = JSON.parse(atob(result.token.split('.')[1]));
+                    
+                    statusDiv.innerHTML = `
+                        <div class="success">
+                            <strong>✅ Admin Login Successful</strong><br>
+                            Roles: ${payload.roles ? payload.roles.join(', ') : 'None'}
+                        </div>
+                    `;
+                    return true;
+                } else {
+                    throw new Error(result.error || 'Login failed');
+                }
+            } catch (error) {
+                statusDiv.innerHTML = `<div class="error"><strong>❌ Admin Login Failed:</strong> ${error.message}</div>`;
+                return false;
+            }
+        }
+
+        async function loginWithTestRole(role) {
+            const statusDiv = document.getElementById('authStatus');
+            
+            const testEmails = {
+                'DS': 'ds.test@cmrp.com',
+                'SE': 'se.test@cmrp.com',
+                'Sales': 'sales.test@cmrp.com'
+            };
+
+            try {
+                const response = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        email: testEmails[role],
+                        password: 'testpass123'
+                    })
+                });
+
+                const result = await response.json();
+                
+                if (response.ok && result.token) {
+                    localStorage.setItem('authToken', result.token);
+                    const payload = JSON.parse(atob(result.token.split('.')[1]));
+                    
+                    statusDiv.innerHTML = `
+                        <div class="success">
+                            <strong>✅ ${role} User Login Successful</strong><br>
+                            Email: ${payload.email}<br>
+                            Roles: ${payload.roles ? payload.roles.join(', ') : 'None'}
+                        </div>
+                    `;
+                    return true;
+                } else {
+                    throw new Error(result.error || 'Login failed');
+                }
+            } catch (error) {
+                statusDiv.innerHTML = `<div class="error"><strong>❌ ${role} User Login Failed:</strong> ${error.message}</div>`;
+                return false;
+            }
+        }
+
+        // Dashboard Testing Functions
+        async function testDashboard(url, resultId) {
+            const resultDiv = document.getElementById(resultId + 'Result');
+            resultDiv.innerHTML = '<div class="info">Testing dashboard...</div>';
+            
+            try {
+                // Open dashboard in iframe for testing
+                const iframe = document.createElement('iframe');
+                iframe.src = url;
+                iframe.style.width = '100%';
+                iframe.style.height = '400px';
+                iframe.style.border = '1px solid #ccc';
+                
+                // Add iframe to result div
+                resultDiv.innerHTML = '<div class="info">Loading dashboard for testing...</div>';
+                resultDiv.appendChild(iframe);
+                
+                // Wait for iframe to load
+                iframe.onload = async () => {
+                    try {
+                        // Try to access the iframe content and test functions
+                        const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+                        const iframeWindow = iframe.contentWindow;
+                        
+                        // Check if role-based filtering functions exist
+                        const hasGetCurrentUserRoles = typeof iframeWindow.getCurrentUserRoles === 'function';
+                        const hasMapUserRolesToFilters = typeof iframeWindow.mapUserRolesToFilters === 'function';
+                        const hasApplyAutoFiltersForUser = typeof iframeWindow.applyAutoFiltersForUser === 'function';
+                        
+                        let testResult = 'PASS';
+                        let details = [];
+                        
+                        if (hasGetCurrentUserRoles) {
+                            details.push('✅ getCurrentUserRoles() available');
+                            try {
+                                const roles = iframeWindow.getCurrentUserRoles();
+                                details.push(`Current roles: ${roles.join(', ')}`);
+                            } catch (e) {
+                                details.push(`⚠️ getCurrentUserRoles() error: ${e.message}`);
+                            }
+                        } else {
+                            details.push('❌ getCurrentUserRoles() missing');
+                            testResult = 'FAIL';
+                        }
+                        
+                        if (hasMapUserRolesToFilters) {
+                            details.push('✅ mapUserRolesToFilters() available');
+                        } else {
+                            details.push('❌ mapUserRolesToFilters() missing');
+                            testResult = 'FAIL';
+                        }
+                        
+                        if (hasApplyAutoFiltersForUser) {
+                            details.push('✅ applyAutoFiltersForUser() available');
+                        } else {
+                            details.push('❌ applyAutoFiltersForUser() missing');
+                            testResult = 'FAIL';
+                        }
+                        
+                        resultDiv.innerHTML = `
+                            <div class="${testResult === 'PASS' ? 'success' : 'error'}">
+                                <strong>${testResult === 'PASS' ? '✅' : '❌'} Dashboard Test ${testResult}</strong><br>
+                                ${details.join('<br>')}
+                            </div>
+                        `;
+                        
+                        testResults.push({
+                            dashboard: url,
+                            result: testResult,
+                            details: details
+                        });
+                        
+                    } catch (error) {
+                        resultDiv.innerHTML = `
+                            <div class="warning">
+                                ⚠️ Dashboard Test PARTIAL<br>
+                                Cannot access iframe content (CORS/security)<br>
+                                Dashboard loaded but functions not testable
+                            </div>
+                        `;
+                        
+                        testResults.push({
+                            dashboard: url,
+                            result: 'PARTIAL',
+                            error: 'CORS/security restrictions'
+                        });
+                    }
+                };
+                
+                iframe.onerror = () => {
+                    resultDiv.innerHTML = `
+                        <div class="error">
+                            ❌ Dashboard Test FAILED<br>
+                            Failed to load dashboard: ${url}
+                        </div>
+                    `;
+                    
+                    testResults.push({
+                        dashboard: url,
+                        result: 'FAIL',
+                        error: 'Failed to load'
+                    });
+                };
+                
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="error">❌ Dashboard test error: ${error.message}</div>`;
+                testResults.push({
+                    dashboard: url,
+                    result: 'ERROR',
+                    error: error.message
+                });
+            }
+        }
+
+        // Console Monitoring
+        function startConsoleMonitoring() {
+            const monitorDiv = document.getElementById('consoleMonitor');
+            monitorDiv.innerHTML = '<div class="info">Starting console monitoring...</div>';
+            
+            // Store original console methods
+            const originalLog = console.log;
+            const originalWarn = console.warn;
+            const originalError = console.error;
+            
+            // Override console methods to capture output
+            console.log = function(...args) {
+                originalLog.apply(console, args);
+                logToMonitor('LOG', args.join(' '));
+            };
+            
+            console.warn = function(...args) {
+                originalWarn.apply(console, args);
+                logToMonitor('WARN', args.join(' '));
+            };
+            
+            console.error = function(...args) {
+                originalError.apply(console, args);
+                logToMonitor('ERROR', args.join(' '));
+            };
+            
+            // Store references for later restoration
+            window.originalConsoleMethods = {
+                log: originalLog,
+                warn: originalWarn,
+                error: originalError
+            };
+            
+            function logToMonitor(level, message) {
+                const timestamp = new Date().toLocaleTimeString();
+                const div = document.createElement('div');
+                div.innerHTML = `<span style="color: ${level === 'ERROR' ? 'red' : level === 'WARN' ? 'orange' : 'blue'};">[${timestamp}] ${level}:</span> ${message}`;
+                monitorDiv.appendChild(div);
+                monitorDiv.scrollTop = monitorDiv.scrollHeight;
+            }
+        }
+
+        function stopConsoleMonitoring() {
+            if (window.originalConsoleMethods) {
+                console.log = window.originalConsoleMethods.log;
+                console.warn = window.originalConsoleMethods.warn;
+                console.error = window.originalConsoleMethods.error;
+                
+                const monitorDiv = document.getElementById('consoleMonitor');
+                monitorDiv.innerHTML += '<div class="info">Console monitoring stopped.</div>';
+            }
+        }
+
+        // Test Report Generation
+        function generateTestReport() {
+            const reportDiv = document.getElementById('testReport');
+            
+            const report = {
+                timestamp: new Date().toISOString(),
+                totalTests: testResults.length,
+                passed: testResults.filter(r => r.result === 'PASS').length,
+                failed: testResults.filter(r => r.result === 'FAIL').length,
+                errors: testResults.filter(r => r.result === 'ERROR').length,
+                partial: testResults.filter(r => r.result === 'PARTIAL').length,
+                results: testResults
+            };
+            
+            reportDiv.innerHTML = `
+                <div class="info">
+                    <h3>📊 Test Summary</h3>
+                    <p><strong>Total Tests:</strong> ${report.totalTests}</p>
+                    <p><strong>Passed:</strong> ${report.passed}</p>
+                    <p><strong>Failed:</strong> ${report.failed}</p>
+                    <p><strong>Errors:</strong> ${report.errors}</p>
+                    <p><strong>Partial:</strong> ${report.partial}</p>
+                    
+                    <button onclick="downloadReport()">Download Full Report</button>
+                    
+                    <h4>Detailed Results:</h4>
+                    <pre>${JSON.stringify(report.results, null, 2)}</pre>
+                </div>
+            `;
+            
+            window.testReportData = report;
+        }
+
+        function downloadReport() {
+            if (window.testReportData) {
+                const blob = new Blob([JSON.stringify(window.testReportData, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `dashboard-integration-test-report-${new Date().toISOString().slice(0, 19)}.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+            }
+        }
+
+        // Initialize
+        console.log('Dashboard Integration Test Suite initialized');
+        console.log('1. Setup Test Environment');
+        console.log('2. Login with different roles');
+        console.log('3. Test each dashboard');
+        console.log('4. Generate test report');
+    </script>
+</body>
+</html>

@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Settings Persistence</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .test-section { margin: 20px 0; padding: 10px; border: 1px solid #ccc; }
+        .success { color: green; }
+        .error { color: red; }
+        .info { color: blue; }
+        button { margin: 5px; padding: 8px 12px; }
+    </style>
+</head>
+<body>
+    <h1>Win-Loss Dashboard Settings Persistence Test</h1>
+    
+    <div class="test-section">
+        <h3>Test Settings Save/Load</h3>
+        <button onclick="testSaveSettings()">Save Test Settings</button>
+        <button onclick="testLoadSettings()">Load Test Settings</button>
+        <button onclick="clearSettings()">Clear Settings</button>
+        <div id="saveLoadResults"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>Current Settings</h3>
+        <div id="currentSettings"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>Simulate Win-Loss Dashboard Functions</h3>
+        <div id="simulationResults"></div>
+    </div>
+
+    <script>
+        // Copy the exact functions from win-loss_dashboard.js
+        const SETTINGS_KEY = 'winLossDashboardSettings';
+
+        // Simulate the global variables
+        let currentSolutionFilter = 'all';
+        let currentAccountMgrFilter = 'all';
+        let currentClientFilter = 'all';
+        let activeQuarters = { '1': true, '2': true, '3': false, '4': false };
+        let currentTableStatusFilter = 'OP100';
+        let currentSort = { col: null, dir: 1 };
+
+        function saveSettings() {
+            const settings = {
+                currentSolutionFilter,
+                currentAccountMgrFilter,
+                currentClientFilter,
+                activeQuarters,
+                currentTableStatusFilter,
+                currentSort,
+                theme: document.documentElement.classList.contains('dark') ? 'dark' : 'light'
+            };
+            localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+            console.log('[SETTINGS] Saved settings:', settings);
+            return settings;
+        }
+
+        function loadSettings() {
+            try {
+                const saved = localStorage.getItem(SETTINGS_KEY);
+                if (saved) {
+                    const settings = JSON.parse(saved);
+                    console.log('[SETTINGS] Loading saved settings:', settings);
+                    
+                    // Restore filter states
+                    if (settings.currentSolutionFilter !== undefined) {
+                        currentSolutionFilter = settings.currentSolutionFilter;
+                    }
+                    if (settings.currentAccountMgrFilter !== undefined) {
+                        currentAccountMgrFilter = settings.currentAccountMgrFilter;
+                    }
+                    if (settings.currentClientFilter !== undefined) {
+                        currentClientFilter = settings.currentClientFilter;
+                    }
+                    if (settings.activeQuarters !== undefined) {
+                        activeQuarters = settings.activeQuarters;
+                    }
+                    if (settings.currentTableStatusFilter !== undefined) {
+                        currentTableStatusFilter = settings.currentTableStatusFilter;
+                    }
+                    if (settings.currentSort !== undefined) {
+                        currentSort = settings.currentSort;
+                    }
+                    
+                    return settings;
+                }
+            } catch (error) {
+                console.error('[SETTINGS] Error loading settings:', error);
+                return null;
+            }
+            return null;
+        }
+
+        function testSaveSettings() {
+            // Set some test values
+            currentSolutionFilter = 'Test Solution';
+            currentAccountMgrFilter = 'Test Manager';
+            currentClientFilter = 'Test Client';
+            activeQuarters = { '1': true, '2': false, '3': true, '4': false };
+            currentTableStatusFilter = 'LOST';
+            currentSort = { col: 'project_name', dir: -1 };
+            
+            const saved = saveSettings();
+            
+            document.getElementById('saveLoadResults').innerHTML = `
+                <div class="success">✅ Settings saved successfully!</div>
+                <pre>${JSON.stringify(saved, null, 2)}</pre>
+            `;
+            
+            updateCurrentSettings();
+        }
+
+        function testLoadSettings() {
+            // First clear current values
+            currentSolutionFilter = 'all';
+            currentAccountMgrFilter = 'all';
+            currentClientFilter = 'all';
+            activeQuarters = { '1': false, '2': false, '3': false, '4': false };
+            currentTableStatusFilter = 'OP100';
+            currentSort = { col: null, dir: 1 };
+            
+            const loaded = loadSettings();
+            
+            if (loaded) {
+                document.getElementById('saveLoadResults').innerHTML = `
+                    <div class="success">✅ Settings loaded successfully!</div>
+                    <pre>${JSON.stringify(loaded, null, 2)}</pre>
+                `;
+            } else {
+                document.getElementById('saveLoadResults').innerHTML = `
+                    <div class="info">ℹ️ No saved settings found</div>
+                `;
+            }
+            
+            updateCurrentSettings();
+        }
+
+        function clearSettings() {
+            localStorage.removeItem(SETTINGS_KEY);
+            
+            // Reset to defaults
+            currentSolutionFilter = 'all';
+            currentAccountMgrFilter = 'all';
+            currentClientFilter = 'all';
+            activeQuarters = { '1': true, '2': true, '3': false, '4': false };
+            currentTableStatusFilter = 'OP100';
+            currentSort = { col: null, dir: 1 };
+            
+            document.getElementById('saveLoadResults').innerHTML = `
+                <div class="info">🗑️ Settings cleared and reset to defaults</div>
+            `;
+            
+            updateCurrentSettings();
+        }
+
+        function updateCurrentSettings() {
+            document.getElementById('currentSettings').innerHTML = `
+                <pre>Current Settings:
+currentSolutionFilter: ${currentSolutionFilter}
+currentAccountMgrFilter: ${currentAccountMgrFilter}
+currentClientFilter: ${currentClientFilter}
+activeQuarters: ${JSON.stringify(activeQuarters)}
+currentTableStatusFilter: ${currentTableStatusFilter}
+currentSort: ${JSON.stringify(currentSort)}</pre>
+            `;
+        }
+
+        // Test localStorage functionality
+        function testLocalStorage() {
+            try {
+                localStorage.setItem('test', 'value');
+                const testValue = localStorage.getItem('test');
+                localStorage.removeItem('test');
+                
+                if (testValue === 'value') {
+                    document.getElementById('simulationResults').innerHTML = `
+                        <div class="success">✅ localStorage is working properly</div>
+                    `;
+                } else {
+                    document.getElementById('simulationResults').innerHTML = `
+                        <div class="error">❌ localStorage read/write failed</div>
+                    `;
+                }
+            } catch (error) {
+                document.getElementById('simulationResults').innerHTML = `
+                    <div class="error">❌ localStorage error: ${error.message}</div>
+                `;
+            }
+        }
+
+        // Initialize on page load
+        window.onload = function() {
+            updateCurrentSettings();
+            testLocalStorage();
+            
+            // Check if settings already exist
+            const existing = localStorage.getItem(SETTINGS_KEY);
+            if (existing) {
+                document.getElementById('saveLoadResults').innerHTML = `
+                    <div class="info">ℹ️ Found existing settings in localStorage</div>
+                `;
+            }
+        };
+    </script>
+</body>
+</html>

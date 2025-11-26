@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Field Mapping Fix</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        button {
+            background: #007cba;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 10px 5px;
+        }
+        button:hover {
+            background: #005a8b;
+        }
+        .success {
+            color: #28a745;
+            font-weight: bold;
+        }
+        .error {
+            color: #dc3545;
+            font-weight: bold;
+        }
+        .info {
+            color: #17a2b8;
+        }
+        .log {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 10px;
+            margin: 10px 0;
+            white-space: pre-wrap;
+            font-family: monospace;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        input, select {
+            width: 100%;
+            padding: 8px;
+            margin: 5px 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 Test Field Mapping Fix</h1>
+        
+        <div class="info">
+            <h3>📋 Test Purpose</h3>
+            <p>This test verifies that the server-side field mapping fix resolves the 500 errors when saving opportunities with formatted margin and currency values.</p>
+            
+            <h3>🔧 What was fixed:</h3>
+            <ul>
+                <li><strong>Field Mapping Issue:</strong> Changed fieldsToStore array to use actual database column names</li>
+                <li><strong>Before:</strong> ['rev', 'final_amt', 'Margin', 'Client Deadline', 'Submitted Date', 'forecast_date']</li>
+                <li><strong>After:</strong> ['rev', 'final_amt', 'margin', 'client_deadline', 'submitted_date', 'forecast_date']</li>
+                <li><strong>Validation:</strong> Server now accepts formatted margin (%) and currency (₱, $) values</li>
+            </ul>
+        </div>
+
+        <h3>🔐 Authentication</h3>
+        <div class="form-group">
+            <label for="email">Email:</label>
+            <input type="email" id="email" value="reuel.rivera@cmrpautomation.com" />
+        </div>
+        <div class="form-group">
+            <label for="password">Password:</label>
+            <input type="password" id="password" value="cmrp0601" />
+        </div>
+        <button onclick="login()">Login & Get Auth Token</button>
+
+        <h3>🧪 Test Actions</h3>
+        <button onclick="fetchOpportunities()">1. Fetch Opportunities</button>
+        <button onclick="testFormattedMarginSave()">2. Test Formatted Margin Save</button>
+        <button onclick="testFormattedCurrencySave()">3. Test Formatted Currency Save</button>
+        <button onclick="testCompleteFormSave()">4. Test Complete Form Save</button>
+        <button onclick="clearLog()">Clear Log</button>
+
+        <div id="log" class="log"></div>
+    </div>
+
+    <script>
+        let authToken = null;
+        let selectedOpportunityUid = null;
+
+        function log(message, type = 'info') {
+            const logDiv = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            const colorClass = type === 'error' ? 'error' : type === 'success' ? 'success' : 'info';
+            logDiv.innerHTML += `<span class="${colorClass}">[${timestamp}] ${message}</span>\n`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+        }
+
+        async function login() {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+
+            try {
+                log('🔐 Attempting login...', 'info');
+                const response = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                });
+
+                const data = await response.json();
+                
+                if (response.ok) {
+                    authToken = data.token;
+                    log(`✅ Login successful! Token: ${authToken.substring(0, 20)}...`, 'success');
+                } else {
+                    log(`❌ Login failed: ${data.error || response.statusText}`, 'error');
+                }
+            } catch (error) {
+                log(`❌ Login error: ${error.message}`, 'error');
+            }
+        }
+
+        async function fetchOpportunities() {
+            if (!authToken) {
+                log('❌ Please login first', 'error');
+                return;
+            }
+
+            try {
+                log('📊 Fetching opportunities...', 'info');
+                const response = await fetch('/api/opportunities', {
+                    headers: { 'Authorization': `Bearer ${authToken}` }
+                });
+
+                const data = await response.json();
+                
+                if (response.ok) {
+                    log(`✅ Fetched ${data.length} opportunities`, 'success');
+                    if (data.length > 0) {
+                        selectedOpportunityUid = data[0].uid;
+                        log(`🎯 Selected opportunity for testing: ${selectedOpportunityUid}`, 'info');
+                        log(`   Project: ${data[0].project_name || 'N/A'}`, 'info');
+                        log(`   Current margin: ${data[0].margin || 'N/A'}`, 'info');
+                        log(`   Current final_amt: ${data[0].final_amt || 'N/A'}`, 'info');
+                    }
+                } else {
+                    log(`❌ Failed to fetch opportunities: ${data.error || response.statusText}`, 'error');
+                }
+            } catch (error) {
+                log(`❌ Fetch error: ${error.message}`, 'error');
+            }
+        }
+
+        async function testFormattedMarginSave() {
+            if (!authToken || !selectedOpportunityUid) {
+                log('❌ Please login and fetch opportunities first', 'error');
+                return;
+            }
+
+            try {
+                log('🧪 Testing formatted margin save (15%)...', 'info');
+                const updateData = {
+                    margin: '15%', // Formatted percentage value
+                    changed_by: 'test_user'
+                };
+
+                const response = await fetch(`/api/opportunities/${selectedOpportunityUid}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(updateData)
+                });
+
+                const responseText = await response.text();
+                log(`Response status: ${response.status}`, 'info');
+                log(`Response: ${responseText}`, response.ok ? 'success' : 'error');
+
+                if (response.ok) {
+                    log('✅ Formatted margin save test PASSED!', 'success');
+                } else {
+                    log(`❌ Formatted margin save test FAILED: ${response.status} ${responseText}`, 'error');
+                }
+            } catch (error) {
+                log(`❌ Test error: ${error.message}`, 'error');
+            }
+        }
+
+        async function testFormattedCurrencySave() {
+            if (!authToken || !selectedOpportunityUid) {
+                log('❌ Please login and fetch opportunities first', 'error');
+                return;
+            }
+
+            try {
+                log('🧪 Testing formatted currency save (₱1,500,000.00)...', 'info');
+                const updateData = {
+                    final_amt: '₱1,500,000.00', // Formatted currency value
+                    changed_by: 'test_user'
+                };
+
+                const response = await fetch(`/api/opportunities/${selectedOpportunityUid}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(updateData)
+                });
+
+                const responseText = await response.text();
+                log(`Response status: ${response.status}`, 'info');
+                log(`Response: ${responseText}`, response.ok ? 'success' : 'error');
+
+                if (response.ok) {
+                    log('✅ Formatted currency save test PASSED!', 'success');
+                } else {
+                    log(`❌ Formatted currency save test FAILED: ${response.status} ${responseText}`, 'error');
+                }
+            } catch (error) {
+                log(`❌ Test error: ${error.message}`, 'error');
+            }
+        }
+
+        async function testCompleteFormSave() {
+            if (!authToken || !selectedOpportunityUid) {
+                log('❌ Please login and fetch opportunities first', 'error');
+                return;
+            }
+
+            try {
+                log('🧪 Testing complete form save with all formatted values...', 'info');
+                const updateData = {
+                    project_name: 'Test Project - Field Mapping Fix',
+                    margin: '12.5%',
+                    final_amt: '$2,500,000.00',
+                    client: 'Test Client',
+                    account_mgr: 'Test Manager',
+                    changed_by: 'test_user'
+                };
+
+                const response = await fetch(`/api/opportunities/${selectedOpportunityUid}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(updateData)
+                });
+
+                const responseText = await response.text();
+                log(`Response status: ${response.status}`, 'info');
+                log(`Response: ${responseText}`, response.ok ? 'success' : 'error');
+
+                if (response.ok) {
+                    log('✅ Complete form save test PASSED!', 'success');
+                    log('🎉 All tests completed successfully! The field mapping fix is working.', 'success');
+                } else {
+                    log(`❌ Complete form save test FAILED: ${response.status} ${responseText}`, 'error');
+                }
+            } catch (error) {
+                log(`❌ Test error: ${error.message}`, 'error');
+            }
+        }
+
+        // Auto-clear log on page load
+        clearLog();
+        log('🚀 Test page loaded. Please login first, then run tests in order.', 'info');
+    </script>
+</body>
+</html>

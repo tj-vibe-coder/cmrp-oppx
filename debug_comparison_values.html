@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Executive Dashboard Comparison Debug Tool</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .debug-section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; }
+        .debug-output { background: #f5f5f5; padding: 10px; margin: 10px 0; white-space: pre-wrap; }
+        button { padding: 10px 20px; margin: 5px; }
+        select { padding: 5px; margin: 5px; }
+        .error { color: red; }
+        .success { color: green; }
+        .warning { color: orange; }
+    </style>
+</head>
+<body>
+    <h1>Executive Dashboard Comparison Debug Tool</h1>
+    
+    <div class="debug-section">
+        <h3>Test Configuration</h3>
+        <label>Account Manager: 
+            <select id="accountMgrSelect">
+                <option value="">All Account Managers</option>
+                <option value="JMO">JMO</option>
+                <option value="RNR">RNR</option>
+                <option value="DBA">DBA</option>
+                <option value="JAF">JAF</option>
+                <option value="TBD">TBD</option>
+            </select>
+        </label>
+        <label>Comparison Mode: 
+            <select id="comparisonModeSelect">
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+                <option value="null">No Comparison</option>
+            </select>
+        </label>
+        <button onclick="runDiagnostic()">Run Diagnostic</button>
+        <button onclick="clearOutput()">Clear Output</button>
+    </div>
+
+    <div class="debug-section">
+        <h3>Diagnostic Output</h3>
+        <div id="debugOutput" class="debug-output">Click "Run Diagnostic" to start...</div>
+    </div>
+
+    <div class="debug-section">
+        <h3>API Test Results</h3>
+        <div id="apiResults" class="debug-output">API tests will appear here...</div>
+    </div>
+
+    <script>
+        let debugOutput = document.getElementById('debugOutput');
+        let apiResults = document.getElementById('apiResults');
+
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const className = type === 'error' ? 'error' : type === 'success' ? 'success' : type === 'warning' ? 'warning' : '';
+            debugOutput.innerHTML += `<span class="${className}">[${timestamp}] ${message}</span>\n`;
+        }
+
+        function logAPI(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const className = type === 'error' ? 'error' : type === 'success' ? 'success' : type === 'warning' ? 'warning' : '';
+            apiResults.innerHTML += `<span class="${className}">[${timestamp}] ${message}</span>\n`;
+        }
+
+        function clearOutput() {
+            debugOutput.innerHTML = '';
+            apiResults.innerHTML = '';
+        }
+
+        async function runDiagnostic() {
+            clearOutput();
+            
+            const accountMgr = document.getElementById('accountMgrSelect').value;
+            const comparisonMode = document.getElementById('comparisonModeSelect').value;
+            
+            log(`Starting diagnostic for Account Manager: "${accountMgr}" (${accountMgr === '' ? 'All Account Managers' : 'Specific'})`);
+            log(`Comparison Mode: ${comparisonMode}`);
+            
+            // Test API endpoints
+            await testAPIEndpoints(comparisonMode, accountMgr);
+            
+            // Test filter logic
+            testFilterLogic(accountMgr);
+            
+            // Test withDelta function
+            testWithDeltaFunction();
+            
+            log('Diagnostic complete!', 'success');
+        }
+
+        async function testAPIEndpoints(comparisonMode, accountMgr) {
+            logAPI('Testing API endpoints...');
+            
+            if (comparisonMode !== 'null') {
+                // Test global snapshot endpoint
+                try {
+                    logAPI(`Testing global snapshot endpoint: /api/snapshots/${comparisonMode}`);
+                    const globalResponse = await fetch(`/api/snapshots/${comparisonMode}`);
+                    logAPI(`Global snapshot status: ${globalResponse.status}`, globalResponse.ok ? 'success' : 'error');
+                    
+                    if (globalResponse.ok) {
+                        const globalData = await globalResponse.json();
+                        logAPI(`Global snapshot data: ${JSON.stringify(globalData, null, 2)}`);
+                    } else {
+                        logAPI(`Global snapshot error: ${globalResponse.statusText}`, 'error');
+                    }
+                } catch (error) {
+                    logAPI(`Global snapshot fetch error: ${error.message}`, 'error');
+                }
+
+                // Test account manager specific endpoint if specified
+                if (accountMgr && accountMgr !== '') {
+                    try {
+                        logAPI(`Testing account manager snapshot endpoint: /api/snapshots/${comparisonMode}/${encodeURIComponent(accountMgr)}`);
+                        const amResponse = await fetch(`/api/snapshots/${comparisonMode}/${encodeURIComponent(accountMgr)}`);
+                        logAPI(`Account manager snapshot status: ${amResponse.status}`, amResponse.ok ? 'success' : 'warning');
+                        
+                        if (amResponse.ok) {
+                            const amData = await amResponse.json();
+                            logAPI(`Account manager snapshot data: ${JSON.stringify(amData, null, 2)}`);
+                        } else {
+                            logAPI(`Account manager snapshot not found (expected for most account managers)`, 'warning');
+                        }
+                    } catch (error) {
+                        logAPI(`Account manager snapshot fetch error: ${error.message}`, 'error');
+                    }
+                }
+            }
+        }
+
+        function testFilterLogic(accountMgr) {
+            log('Testing filter logic...');
+            
+            const currentFilters = { accountMgr: accountMgr, solution: '' };
+            const hasAccountMgrFilter = currentFilters.accountMgr && currentFilters.accountMgr !== '';
+            const hasSolutionFilter = currentFilters.solution && currentFilters.solution !== '';
+            const hasFiltersApplied = hasAccountMgrFilter || hasSolutionFilter;
+            
+            log(`Current filters: ${JSON.stringify(currentFilters)}`);
+            log(`Has account manager filter: ${hasAccountMgrFilter}`);
+            log(`Has solution filter: ${hasSolutionFilter}`);
+            log(`Has any filters applied: ${hasFiltersApplied}`);
+            
+            if (hasAccountMgrFilter) {
+                log(`Should use account manager specific baseline for: ${accountMgr}`, 'success');
+            } else {
+                log(`Should use global baseline (All Account Managers view)`, 'success');
+            }
+        }
+
+        function testWithDeltaFunction() {
+            log('Testing withDelta function scenarios...');
+            
+            // Simulate different scenarios
+            const scenarios = [
+                { current: 100, previous: 90, desc: 'Normal positive delta' },
+                { current: 90, previous: 100, desc: 'Normal negative delta' },
+                { current: 100, previous: 100, desc: 'No change' },
+                { current: 100, previous: null, desc: 'Null previous value' },
+                { current: 100, previous: undefined, desc: 'Undefined previous value' },
+                { current: 100, previous: 'invalid', desc: 'Invalid previous value' },
+                { current: 0, previous: 5, desc: 'Zero current value' }
+            ];
+
+            scenarios.forEach(scenario => {
+                try {
+                    // Simulate the withDelta logic
+                    const currentComparisonMode = 'weekly'; // Assume weekly mode
+                    
+                    if (currentComparisonMode === null || 
+                        scenario.previous === undefined || 
+                        scenario.previous === null ||
+                        typeof scenario.current !== 'number' || 
+                        typeof scenario.previous !== 'number' ||
+                        isNaN(scenario.current) || 
+                        isNaN(scenario.previous)) {
+                        log(`${scenario.desc}: Would show current value only (${scenario.current})`);
+                    } else {
+                        const delta = scenario.current - scenario.previous;
+                        log(`${scenario.desc}: Current=${scenario.current}, Previous=${scenario.previous}, Delta=${delta}`, 'success');
+                    }
+                } catch (error) {
+                    log(`${scenario.desc}: Error - ${error.message}`, 'error');
+                }
+            });
+        }
+
+        // Auto-run diagnostic on page load
+        window.addEventListener('load', () => {
+            setTimeout(runDiagnostic, 500);
+        });
+    </script>
+</body>
+</html> 

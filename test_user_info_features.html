@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>User Info & Online Users Test</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    
+    <style>
+        /* User Info and Online Users Styles */
+        .top-bar-user-section {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-left: auto;
+        }
+        
+        .user-info-container {
+            display: flex;
+            align-items: center;
+        }
+        
+        .user-info-display {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 0.75rem;
+            background: var(--bg-secondary);
+            border-radius: 0.5rem;
+            border: 1px solid var(--border-primary);
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+        
+        .user-info-display:hover {
+            background: var(--bg-hover);
+            border-color: var(--border-focus);
+        }
+        
+        .user-avatar {
+            font-size: 1.5rem !important;
+            color: var(--text-secondary);
+        }
+        
+        .user-details {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            line-height: 1.2;
+        }
+        
+        .user-name {
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+        
+        .user-role {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.025em;
+        }
+        
+        .online-users-container {
+            position: relative;
+        }
+        
+        .online-users-display {
+            display: flex;
+            align-items: center;
+            gap: 0.375rem;
+            padding: 0.5rem 0.75rem;
+            background: var(--bg-secondary);
+            border-radius: 0.5rem;
+            border: 1px solid var(--border-primary);
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+        
+        .online-users-display:hover {
+            background: var(--bg-hover);
+            border-color: var(--border-focus);
+        }
+        
+        .online-indicator {
+            font-size: 0.875rem !important;
+            color: #10b981;
+            animation: pulse 2s infinite;
+        }
+        
+        .online-count {
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: var(--text-primary);
+            min-width: 1rem;
+            text-align: center;
+        }
+        
+        .online-users-list {
+            position: absolute;
+            top: 100%;
+            right: 0;
+            margin-top: 0.5rem;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-primary);
+            border-radius: 0.5rem;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+            min-width: 200px;
+            max-height: 300px;
+            overflow-y: auto;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(-10px);
+            transition: all 0.2s ease;
+        }
+        
+        .online-users-display:hover .online-users-list,
+        .online-users-list:hover {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+        }
+        
+        .online-user-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.75rem;
+            border-bottom: 1px solid var(--border-primary);
+            transition: background-color 0.15s ease;
+        }
+        
+        .online-user-item:last-child {
+            border-bottom: none;
+        }
+        
+        .online-user-item:hover {
+            background: var(--bg-hover);
+        }
+        
+        .online-user-item .material-icons {
+            font-size: 1.25rem !important;
+            color: var(--text-secondary);
+        }
+        
+        .online-user-name {
+            font-size: 0.875rem;
+            color: var(--text-primary);
+            font-weight: 500;
+        }
+        
+        .test-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 2rem;
+            background: var(--bg-primary);
+            border-bottom: 1px solid var(--border-primary);
+        }
+        
+        .test-title {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+        
+        .test-content {
+            padding: 2rem;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .demo-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-primary);
+            border-radius: 0.5rem;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+        
+        .demo-card h3 {
+            font-size: 1.125rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 0.75rem;
+        }
+        
+        .demo-card p {
+            color: var(--text-secondary);
+            line-height: 1.6;
+        }
+        
+        .feature-list {
+            list-style: none;
+            padding: 0;
+        }
+        
+        .feature-list li {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 0;
+            color: var(--text-secondary);
+        }
+        
+        .feature-list li .material-icons {
+            color: #10b981;
+            font-size: 1rem !important;
+        }
+    </style>
+</head>
+<body class="min-h-screen">
+    <div class="test-header" style="display: flex; justify-content: space-between; align-items: center; padding: 1rem 2rem; background: var(--bg-primary); border-bottom: 1px solid var(--border-primary);">
+        <h1 style="font-size: 1.5rem; font-weight: 600; color: var(--text-primary);">User Info & Online Users Demo</h1>
+        
+        <!-- User Info and Online Users Section -->
+        <div style="display: flex; align-items: center; gap: 1rem; margin-left: auto;">
+            <!-- Login Information Display -->
+            <div style="display: flex; align-items: center;">
+                <div id="userInfoDisplay" style="display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.75rem; background: var(--bg-secondary); border-radius: 0.5rem; border: 1px solid var(--border-primary); cursor: pointer;">
+                    <span class="material-icons" style="font-size: 1.5rem; color: var(--text-secondary);">account_circle</span>
+                    <div style="display: flex; flex-direction: column; align-items: flex-start; line-height: 1.2;">
+                        <span id="currentUserName" style="font-size: 0.875rem; font-weight: 500; color: var(--text-primary);">Test User</span>
+                        <span id="currentUserRole" style="font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase;">Admin</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Online Users Indicator -->
+            <div style="position: relative;">
+                <div id="onlineUsersDisplay" title="Users currently online" style="display: flex; align-items: center; gap: 0.375rem; padding: 0.5rem 0.75rem; background: var(--bg-secondary); border-radius: 0.5rem; border: 1px solid var(--border-primary); cursor: pointer;">
+                    <span class="material-icons" style="font-size: 0.875rem; color: #10b981; animation: pulse 2s infinite;">radio_button_checked</span>
+                    <span id="onlineCount" style="font-size: 0.875rem; font-weight: 500; color: var(--text-primary);">3</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div style="padding: 2rem; max-width: 1200px; margin: 0 auto;">
+        <div style="background: var(--bg-secondary); border: 1px solid var(--border-primary); border-radius: 0.5rem; padding: 1.5rem; margin-bottom: 1.5rem;">
+            <h3 style="font-size: 1.125rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.75rem;">🎉 Features Successfully Implemented!</h3>
+            <p style="color: var(--text-secondary); line-height: 1.6;">Both features you requested have been successfully added to your CMRP Opportunities Management system:</p>
+        </div>
+
+        <div style="background: var(--bg-secondary); border: 1px solid var(--border-primary); border-radius: 0.5rem; padding: 1.5rem; margin-bottom: 1.5rem;">
+            <h3 style="font-size: 1.125rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.75rem;">🔐 Login Information Display</h3>
+            <p style="color: var(--text-secondary); line-height: 1.6; margin-bottom: 1rem;">Added to the top navigation on all dashboard pages. Shows:</p>
+            <ul style="list-style: none; padding: 0;">
+                <li style="display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0; color: var(--text-secondary);"><span class="material-icons" style="color: #10b981; font-size: 1rem;">check_circle</span> Your name and role</li>
+                <li style="display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0; color: var(--text-secondary);"><span class="material-icons" style="color: #10b981; font-size: 1rem;">check_circle</span> Professional account circle icon</li>
+                <li style="display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0; color: var(--text-secondary);"><span class="material-icons" style="color: #10b981; font-size: 1rem;">check_circle</span> Hover effects and responsive design</li>
+            </ul>
+        </div>
+
+        <div style="background: var(--bg-secondary); border: 1px solid var(--border-primary); border-radius: 0.5rem; padding: 1.5rem; margin-bottom: 1.5rem;">
+            <h3 style="font-size: 1.125rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.75rem;">👥 Online Users (Google Sheets Style)</h3>
+            <p style="color: var(--text-secondary); line-height: 1.6; margin-bottom: 1rem;">Real-time presence indicator showing who's currently online:</p>
+            <ul style="list-style: none; padding: 0;">
+                <li style="display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0; color: var(--text-secondary);"><span class="material-icons" style="color: #10b981; font-size: 1rem;">check_circle</span> Live count of online users</li>
+                <li style="display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0; color: var(--text-secondary);"><span class="material-icons" style="color: #10b981; font-size: 1rem;">check_circle</span> Hover to see detailed user list</li>
+                <li style="display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0; color: var(--text-secondary);"><span class="material-icons" style="color: #10b981; font-size: 1rem;">check_circle</span> Shows which page users are viewing</li>
+                <li style="display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0; color: var(--text-secondary);"><span class="material-icons" style="color: #10b981; font-size: 1rem;">check_circle</span> Animated green indicator</li>
+            </ul>
+        </div>
+
+        <div style="background: var(--bg-secondary); border: 1px solid var(--border-primary); border-radius: 0.5rem; padding: 1.5rem; margin-bottom: 1.5rem;">
+            <h3 style="font-size: 1.125rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.75rem;">📍 Where to Find These Features</h3>
+            <p style="color: var(--text-secondary); line-height: 1.6; margin-bottom: 1rem;">Both features are now available on:</p>
+            <ul style="list-style: none; padding: 0;">
+                <li style="display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0; color: var(--text-secondary);"><span class="material-icons" style="color: #10b981; font-size: 1rem;">check_circle</span> Main Opportunities page (index.html)</li>
+                <li style="display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0; color: var(--text-secondary);"><span class="material-icons" style="color: #10b981; font-size: 1rem;">check_circle</span> Executive Dashboard</li>
+                <li style="display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0; color: var(--text-secondary);"><span class="material-icons" style="color: #10b981; font-size: 1rem;">check_circle</span> All other dashboard pages (ready for expansion)</li>
+            </ul>
+        </div>
+
+        <div style="background: var(--bg-secondary); border: 1px solid var(--border-primary); border-radius: 0.5rem; padding: 1.5rem;">
+            <h3 style="font-size: 1.125rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.75rem;">🚀 Next Steps</h3>
+            <p style="color: var(--text-secondary); line-height: 1.6; margin-bottom: 1rem;">To see the features in action:</p>
+            <ol style="list-style: decimal; padding-left: 1rem;">
+                <li style="color: var(--text-secondary); padding: 0.25rem 0;">Log in to your application</li>
+                <li style="color: var(--text-secondary); padding: 0.25rem 0;">Navigate to any dashboard page</li>
+                <li style="color: var(--text-secondary); padding: 0.25rem 0;">Look for the user info and online users in the top navigation</li>
+                <li style="color: var(--text-secondary); padding: 0.25rem 0;">Open another browser tab to see the online count update</li>
+            </ol>
+        </div>
+    </div>
+
+    <script src="config.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const savedTheme = localStorage.getItem('theme') || 'dark';
+            document.documentElement.classList.toggle('dark', savedTheme === 'dark');
+            console.log('Demo page loaded - features ready for testing!');
+        });
+    </script>
+</body>
+</html> 
