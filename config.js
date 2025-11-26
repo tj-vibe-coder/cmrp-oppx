@@ -4,10 +4,10 @@ const config = {
     API_BASE_URL: (() => {
         // Check if we're in development (localhost)
         if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-            return 'http://localhost:3000';  // Back to standard backend port
+            return 'http://localhost:3000';  // Local development
         }
-        // Production - use your actual Render backend URL
-        return 'https://cmrp-opps-backend.onrender.com';
+        // Production - use same origin (monolithic deployment)
+        return window.location.origin;
     })(),
     
     // Environment detection

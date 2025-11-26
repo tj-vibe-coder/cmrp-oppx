@@ -1,3 +1,4 @@
+const db = require('../../db_adapter');
 /**
  * Presentation API Routes
  * Handles PowerPoint generation and presentation data endpoints
@@ -152,7 +153,7 @@ router.get('/submissions/:accountManager', async (req, res) => {
             ORDER BY o.final_amt DESC, r.changed_at DESC
         `;
         
-        const result = await pool.query(query, [accountManager, weekStart, weekEnd]);
+        const result = await db.query(query, [accountManager, weekStart, weekEnd]);
         
         const totalValue = result.rows.reduce((sum, row) => sum + (parseFloat(row.final_amt) || 0), 0);
         
@@ -301,7 +302,7 @@ router.get('/templates', async (req, res) => {
             ORDER BY template_name
         `;
         
-        const result = await pool.query(query);
+        const result = await db.query(query);
         
         res.json({
             templates: result.rows
@@ -339,7 +340,7 @@ router.post('/templates', async (req, res) => {
             RETURNING *
         `;
         
-        const result = await pool.query(query, [
+        const result = await db.query(query, [
             template_name,
             JSON.stringify(slide_structure),
             JSON.stringify(color_scheme),
@@ -379,7 +380,7 @@ router.get('/account-managers', async (req, res) => {
             ORDER BY account_mgr
         `;
         
-        const result = await pool.query(query);
+        const result = await db.query(query);
         
         res.json({
             accountManagers: result.rows
@@ -419,7 +420,7 @@ async function getCurrentMetrics(accountManager) {
         WHERE account_mgr = $1
     `;
     
-    const result = await pool.query(query, [accountManager]);
+    const result = await db.query(query, [accountManager]);
     return result.rows[0];
 }
 

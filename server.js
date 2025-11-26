@@ -6,7 +6,7 @@ console.log(`🚀 Port: ${process.env.PORT || 3000}`);
 
 const express = require('express');
 const path = require('path'); // Import the path module
-const { Pool } = require('pg'); // Import PostgreSQL client
+const db = require('./db_adapter'); // Database adapter for PostgreSQL/SQLiteCloud
 const { v4: uuidv4 } = require('uuid'); // Import uuid package
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -96,16 +96,16 @@ app.get('/api/cors-test', (req, res) => {
   });
 });
 
-// PostgreSQL connection pool
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgresql://reuelrivera@localhost:5432/cmrp_opps_db?sslmode=disable',
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
-});
-
-// Set search path for all new connections
-pool.on('connect', (client) => {
-  client.query('SET search_path TO public');
-});
+// Initialize database connection (SQLiteCloud or PostgreSQL)
+let pool; // Keep for compatibility
+(async () => {
+  try {
+    pool = await db.initDatabase();
+    console.log('✅ Database initialized successfully');
+  } catch (error) {
+    console.error('❌ Database initialization failed:', error);
+  }
+})();
 
 // Google Drive Service Integration  
 const GoogleDriveService = require('./google_drive_service');
@@ -118,7 +118,7 @@ const { NotificationService } = require('./backend/routes/notifications');
 
 // Add database middleware
 app.use((req, res, next) => {
-    req.db = pool;
+    req.db = db;
     next();
 });
 
@@ -137,7 +137,7 @@ app.post('/api/login', express.json(), async (req, res) => {
             console.log(`[DEV MODE] Mock login for: ${email}`);
             
             // Query the database to get real user data
-            const result = await pool.query(
+            const result = await db.query(
                 'SELECT * FROM users WHERE email = $1',
                 [email.toLowerCase()]
             );
@@ -149,9 +149,9 @@ app.post('/api/login', express.json(), async (req, res) => {
             }
             
             // Update last login time in database
-            await pool.query(`
+            await db.query(`
                 UPDATE users 
-                SET last_login_at = NOW()
+                SET last_login_at = datetime('now')
                 WHERE id = $1
             `, [user.id]);
             
@@ -177,7 +177,7 @@ app.post('/api/login', express.json(), async (req, res) => {
             }
             
             // Query the database
-            const result = await pool.query(
+            const result = await db.query(
                 'SELECT * FROM users WHERE email = $1',
                 [email.toLowerCase()]
             );
@@ -196,9 +196,9 @@ app.post('/api/login', express.json(), async (req, res) => {
             }
             
             // Update last login time in database with Manila timezone
-            await pool.query(`
+            await db.query(`
                 UPDATE users 
-                SET last_login_at = NOW()
+                SET last_login_at = datetime('now')
                 WHERE id = $1
             `, [user.id]);
             
@@ -244,7 +244,7 @@ app.get('/api/snapshots/custom-dates', async (req, res) => {
             ORDER BY snapshot_date DESC, created_at DESC
         `;
 
-        const result = await pool.query(query);
+        const result = await db.query(query);
 
         res.json({
             success: true,
@@ -343,7 +343,7 @@ app.post('/api/snapshots/custom', async (req, res) => {
             pending_count, declined_count, revised_count
         ];
 
-        const result = await pool.query(query, values);
+        const result = await db.query(query, values);
 
         res.status(201).json({
             success: true,
@@ -394,7 +394,7 @@ app.get('/api/snapshots/custom/:date', async (req, res) => {
             LIMIT 1
         `;
 
-        const result = await pool.query(query, [date]);
+        const result = await db.query(query, [date]);
 
         if (result.rows.length === 0) {
             return res.status(404).json({ 
@@ -437,7 +437,7 @@ app.get('/api/proposal-story/:opportunityUid', authenticateToken, async (req, re
         
         try {
             // Try to use the database function first
-            const result = await pool.query(
+            const result = await db.query(
                 'SELECT * FROM get_proposal_story($1) ORDER BY timeline_date DESC',
                 [opportunityUid]
             );
@@ -448,7 +448,7 @@ app.get('/api/proposal-story/:opportunityUid', authenticateToken, async (req, re
             // Fallback query if the function doesn't exist
             try {
                 // Get manual story entries
-                const manualEntries = await pool.query(`
+                const manualEntries = await db.query(`
                     SELECT 
                         'manual' as source_type,
                         created_at as timeline_date,
@@ -470,7 +470,7 @@ app.get('/api/proposal-story/:opportunityUid', authenticateToken, async (req, re
                 // Get revision history if available
                 let revisionEntries = { rows: [] };
                 try {
-                    revisionEntries = await pool.query(`
+                    revisionEntries = await db.query(`
                         SELECT 
                             'revision' as source_type,
                             changed_at as timeline_date,
@@ -551,7 +551,7 @@ app.post('/api/proposal-story', authenticateToken, [
         let result;
         try {
             // Insert story entry
-            result = await pool.query(`
+            result = await db.query(`
                 INSERT INTO proposal_story_entries 
                 (opportunity_uid, created_by, entry_type, title, content, visibility, metadata)
                 VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -588,7 +588,7 @@ app.post('/api/proposal-story', authenticateToken, [
                 
                 // Get project name for context
                 const projectQuery = 'SELECT project_name FROM opps_monitoring WHERE uid = $1';
-                const projectResult = await pool.query(projectQuery, [opportunity_uid]);
+                const projectResult = await db.query(projectQuery, [opportunity_uid]);
                 const projectName = projectResult.rows[0]?.project_name || 'Unknown Project';
                 
                 // Create notifications for each mentioned user
@@ -601,7 +601,7 @@ app.post('/api/proposal-story', authenticateToken, [
                               REPLACE(LOWER(name), ' ', '') = LOWER($1)
                         LIMIT 1
                     `;
-                    const userResult = await pool.query(userQuery, [mentionedUsername]);
+                    const userResult = await db.query(userQuery, [mentionedUsername]);
                     
                     if (userResult.rows.length > 0) {
                         const mentionedUserId = userResult.rows[0].id;
@@ -695,7 +695,7 @@ app.put('/api/proposal-story/:entryId', authenticateToken, [
             values.push(visibility);
         }
         
-        updates.push(`edited_at = NOW()`);
+        updates.push(`edited_at = datetime('now')`);
         updates.push(`edited_by = $${paramIndex++}`);
         values.push(username);
         values.push(entryId); // for WHERE clause
@@ -707,7 +707,7 @@ app.put('/api/proposal-story/:entryId', authenticateToken, [
             });
         }
         
-        const result = await pool.query(`
+        const result = await db.query(`
             UPDATE proposal_story_entries 
             SET ${updates.join(', ')}
             WHERE id = $${paramIndex} AND created_by = $${paramIndex - 1}
@@ -748,9 +748,9 @@ app.delete('/api/proposal-story/:entryId', authenticateToken, async (req, res) =
         console.log(`[PROPOSAL-STORY] Marking story entry ${entryId} as deleted by ${username}`);
         
         // Soft delete - mark as deleted instead of removing
-        const result = await pool.query(`
+        const result = await db.query(`
             UPDATE proposal_story_entries 
-            SET is_deleted = true, edited_at = NOW(), edited_by = $1
+            SET is_deleted = true, edited_at = datetime('now'), edited_by = $1
             WHERE id = $2 AND created_by = $1
             RETURNING id
         `, [username, entryId]);
@@ -1344,7 +1344,7 @@ app.get('/api/snapshots/:type/:accountManager', async (req, res) => {
       LIMIT 1
     `;
 
-    const result = await pool.query(query, [type, accountManager]);
+    const result = await db.query(query, [type, accountManager]);
 
     if (result.rows.length === 0) {
       return res.status(404).json({ 
@@ -1389,7 +1389,7 @@ app.get('/api/snapshots/:type', async (req, res) => {
       LIMIT 1
     `;
 
-    const result = await pool.query(query, [type]);
+    const result = await db.query(query, [type]);
 
     if (result.rows.length === 0) {
       return res.status(404).json({ 
@@ -1484,7 +1484,7 @@ app.post('/api/snapshots', async (req, res) => {
       pending_count, declined_count, revised_count
     ];
 
-    const result = await pool.query(query, values);
+    const result = await db.query(query, values);
 
     res.status(201).json({
       success: true,
@@ -1532,7 +1532,7 @@ app.post('/api/update-password', authenticateToken, authLimiter, [
     }
 
     try {
-        const userResult = await pool.query('SELECT * FROM users WHERE id = $1', [userId]);
+        const userResult = await db.query('SELECT * FROM users WHERE id = $1', [userId]);
         if (userResult.rows.length === 0) {
             return res.status(404).json({ message: 'User not found.' });
         }
@@ -1544,7 +1544,7 @@ app.post('/api/update-password', authenticateToken, authLimiter, [
         }
 
         const hashedNewPassword = await bcrypt.hash(newPassword, 10);
-        await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [hashedNewPassword, userId]);
+        await db.query('UPDATE users SET password_hash = $1 WHERE id = $2', [hashedNewPassword, userId]);
 
         // Log password change
         const now = new Date().toISOString();
@@ -1582,7 +1582,7 @@ app.post('/api/register', authLimiter, [
 
     try {
         // Check if email already exists
-        const existingUser = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
+        const existingUser = await db.query('SELECT id FROM users WHERE email = $1', [email]);
         if (existingUser.rows.length > 0) {
             return res.status(409).json({ error: 'Email already registered' });
         }
@@ -1592,7 +1592,7 @@ app.post('/api/register', authLimiter, [
         const id = uuidv4();
 
         // Insert new user
-        await pool.query(
+        await db.query(
             'INSERT INTO users (id, email, password_hash, name, is_verified, roles, account_type) VALUES ($1, $2, $3, $4, $5, $6, $7)',
             [id, email, password_hash, name || null, true, Array.isArray(roles) ? roles : [roles], 'User']
         );
@@ -1716,7 +1716,7 @@ app.get('/api/opportunities', authenticateToken, async (req, res) => {
       return res.json(mockOpportunities);
     }
     
-    const result = await pool.query(`
+    const result = await db.query(`
       SELECT uid, encoded_date, project_name, project_code, rev, client, solutions, 
              sol_particulars, industries, ind_particulars, date_received, client_deadline, 
              decision, account_mgr, pic, bom, status, submitted_date, margin, final_amt, 
@@ -1743,7 +1743,7 @@ app.get('/api/opportunities/check-project-code', authenticateToken, async (req, 
   }
   
   try {
-    const result = await pool.query(
+    const result = await db.query(
       'SELECT uid FROM opps_monitoring WHERE project_code = $1',
       [code.trim()]
     );
@@ -1955,7 +1955,7 @@ app.get('/api/dashboard', async (req, res) => {
     }
     
     // Updated: Select all fields needed for the dashboard table
-    const result = await pool.query(`
+    const result = await db.query(`
       SELECT 
         opp_status, 
         date_awarded_lost, 
@@ -2103,7 +2103,7 @@ app.get('/api/forecast-dashboard', async (req, res) => {
     }
     console.log(`[API /api/forecast-dashboard] Executing SQL: ${sql}`);
     console.log(`[API /api/forecast-dashboard] Parameters:`, queryParams);
-    const result = await pool.query(sql, queryParams);
+    const result = await db.query(sql, queryParams);
     const opportunities = result.rows;
     console.log(`[API /api/forecast-dashboard] Database query completed. Found ${opportunities.length} opportunities`);
 
@@ -2252,8 +2252,8 @@ app.get('/api/forecast-dashboard', async (req, res) => {
 app.get('/api/forecast-revision-summary', async (req, res) => {
     // ... (implementation remains the same) ...
     try {
-        const byRevisionDate = await pool.query(`...`);
-        const byForecastDate = await pool.query(`...`);
+        const byRevisionDate = await db.query(`...`);
+        const byForecastDate = await db.query(`...`);
         res.json({ byRevisionDate: byRevisionDate.rows, byForecastDate: byForecastDate.rows });
     } catch (error) { /* ... error handling ... */ }
 });
@@ -2262,7 +2262,7 @@ app.get('/api/forecast-revision-summary', async (req, res) => {
 app.get('/api/forecast-dashboard-weeks', async (req, res) => {
     try {
         // Query only relevant opportunities (same filter as /api/forecast-dashboard)
-        const result = await pool.query(`
+        const result = await db.query(`
             SELECT forecast_date, final_amt, opp_status, project_name
             FROM opps_monitoring
             WHERE forecast_date IS NOT NULL
@@ -2398,7 +2398,7 @@ app.get('/api/forecast-sliding-summary', async (req, res) => {
           om.final_amt
         FROM forecast_revisions fr
         JOIN opps_monitoring om ON fr.opportunity_uid::uuid = om.uid -- CORRECTED: Cast TEXT to UUID for join
-        WHERE fr.changed_at >= NOW() - INTERVAL '${intervalDays}'
+        WHERE fr.changed_at >= datetime('now', '-${intervalDays}')
       ),
       monthly_changes AS (
         SELECT
@@ -2431,7 +2431,7 @@ app.get('/api/forecast-sliding-summary', async (req, res) => {
       ORDER BY month_year_key ASC;
     `;
 
-    const result = await pool.query(slidingSummarySql);
+    const result = await db.query(slidingSummarySql);
     
     const formattedResult = result.rows.map(row => ({
       // Ensure monthYear is formatted correctly for matching with main chart labels
@@ -2476,7 +2476,7 @@ app.post('/api/opportunities', authenticateToken,
     body('project_code').optional().custom(async (value) => {
       if (value && value.length > 0) {
         // Check for duplicate project code in database
-        const existingProject = await pool.query(
+        const existingProject = await db.query(
           'SELECT uid FROM opps_monitoring WHERE project_code = $1',
           [value.trim()]
         );
@@ -2550,7 +2550,7 @@ app.post('/api/opportunities', authenticateToken,
 
     console.log('Executing SQL:', sql); console.log('With Values:', values);
     try {
-      const result = await pool.query(sql, values);
+      const result = await db.query(sql, values);
       const createdOpp = result.rows[0];
       const revKey = getColumnInsensitive(createdOpp, 'rev');
       const revNumber = revKey ? (Number(createdOpp[revKey]) || 0) : 0;
@@ -2561,9 +2561,9 @@ app.post('/api/opportunities', authenticateToken,
         const key = (f === 'rev') ? 'rev' : getColumnInsensitive(createdOpp, f);
         if (key && createdOpp.hasOwnProperty(key)) snapshotFields[f] = createdOpp[key]; else snapshotFields[f] = null;
       });
-      await pool.query(
+      await db.query(
         `INSERT INTO opportunity_revisions (opportunity_uid, revision_number, changed_by, changed_at, changed_fields, full_snapshot)
-         VALUES ($1, $2, $3, NOW(), $4, $5)`,
+         VALUES ($1, $2, $3, datetime('now'), $4, $5)`,
         [createdOpp.uid, revNumber, changed_by, JSON.stringify(snapshotFields), JSON.stringify(snapshotFields)]
       );
       console.log(`Revision ${revNumber} created for new opportunity ${createdOpp.uid}`);
@@ -2605,7 +2605,7 @@ app.post('/api/opportunities', authenticateToken,
           if (assignedValue && assignedValue.trim() !== '') {
             // Find user by name (assuming the field contains user names)
             const userQuery = 'SELECT id FROM users WHERE name ILIKE $1 OR email ILIKE $1 LIMIT 1';
-            const userResult = await pool.query(userQuery, [assignedValue.trim()]);
+            const userResult = await db.query(userQuery, [assignedValue.trim()]);
             
             if (userResult.rows.length > 0) {
               const assignedUserId = userResult.rows[0].id;
@@ -2832,11 +2832,11 @@ app.put('/api/opportunities/:uid', authenticateToken,
       console.log(`[Revision] Upserting current revision state: ${newRevNumber}`);
       const revisionSqlUpsert = `
           INSERT INTO opportunity_revisions (opportunity_uid, revision_number, changed_by, changed_at, changed_fields, full_snapshot)
-          VALUES ($1, $2, $3, NOW(), $4, $5)
+          VALUES ($1, $2, $3, datetime('now'), $4, $5)
           ON CONFLICT (opportunity_uid, revision_number)
           DO UPDATE SET
               changed_by = EXCLUDED.changed_by,
-              changed_at = NOW(),
+              changed_at = datetime('now'),
               changed_fields = EXCLUDED.changed_fields,
               full_snapshot = EXCLUDED.full_snapshot`;
       await client.query(revisionSqlUpsert, [
@@ -2852,7 +2852,7 @@ app.put('/api/opportunities/:uid', authenticateToken,
           console.log(`[Revision] Revision Changed. Inserting previous revision (if not exists): ${oldRevNumber}`);
           const insertOldSql = `
               INSERT INTO opportunity_revisions (opportunity_uid, revision_number, changed_by, changed_at, changed_fields, full_snapshot)
-              VALUES ($1, $2, $3, NOW(), $4, $5)
+              VALUES ($1, $2, $3, datetime('now'), $4, $5)
               ON CONFLICT (opportunity_uid, revision_number) DO NOTHING`;
           await client.query(insertOldSql, [
               uid,
@@ -2879,7 +2879,7 @@ app.put('/api/opportunities/:uid', authenticateToken,
           if (oldValue !== newValue && newValue && newValue.trim() !== '') {
             // Find user by name (assuming the field contains user names)
             const userQuery = 'SELECT id FROM users WHERE name ILIKE $1 OR email ILIKE $1 LIMIT 1';
-            const userResult = await pool.query(userQuery, [newValue.trim()]);
+            const userResult = await db.query(userQuery, [newValue.trim()]);
             
             if (userResult.rows.length > 0) {
               const assignedUserId = userResult.rows[0].id;
@@ -2940,7 +2940,7 @@ app.get('/api/opportunities/:uid/revisions', authenticateToken, async (req, res)
     try {
         console.log(`[GET /api/opportunities/${uid}/revisions] Fetching revision history...`);
         
-        const result = await pool.query(
+        const result = await db.query(
             'SELECT * FROM opportunity_revisions WHERE opportunity_uid = $1 ORDER BY revision_number DESC, changed_at DESC',
             [uid]
         );
@@ -2998,7 +2998,7 @@ app.get('/update_password.html', (req, res) => {
 // GET all users
 app.get('/api/users', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const result = await pool.query('SELECT id, email, name, is_verified, roles, account_type, last_login_at FROM users ORDER BY email ASC');
+    const result = await db.query('SELECT id, email, name, is_verified, roles, account_type, last_login_at FROM users ORDER BY email ASC');
     const users = result.rows.map(u => ({
       _id: u.id,
       id: u.id, // Add id field for frontend compatibility
@@ -3020,7 +3020,7 @@ app.get('/api/users', authenticateToken, requireAdmin, async (req, res) => {
 // GET a single user by ID
 app.get('/api/users/:id', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const result = await pool.query('SELECT id, email, name, is_verified, roles, account_type FROM users WHERE id = $1', [req.params.id]);
+    const result = await db.query('SELECT id, email, name, is_verified, roles, account_type FROM users WHERE id = $1', [req.params.id]);
     if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
     const u = result.rows[0];
     res.json({ 
@@ -3059,14 +3059,14 @@ app.post('/api/users', authenticateToken, requireAdmin,
         return res.status(400).json({ message: 'Email and password are required.' });
       }
       // Check for duplicate email
-      const check = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
+      const check = await db.query('SELECT id FROM users WHERE email = $1', [email]);
       if (check.rows.length > 0) {
         return res.status(409).json({ message: 'Email already registered.' });
       }
       const password_hash = await bcrypt.hash(password, 10);
       const id = uuidv4();
       const finalName = name || username || null;
-      await pool.query(
+      await db.query(
         'INSERT INTO users (id, email, password_hash, name, is_verified, roles, account_type) VALUES ($1, $2, $3, $4, $5, $6, $7)',
         [id, email, password_hash, finalName, true, Array.isArray(roles) ? roles : (roles ? [roles] : []), accountType || 'User']
       );
@@ -3114,7 +3114,7 @@ app.put('/api/users/:id', authenticateToken, requireAdmin,
       } else {
         updateSql += ' WHERE id=$5';
       }
-      const result = await pool.query(updateSql, params);
+      const result = await db.query(updateSql, params);
       if (result.rowCount === 0) return res.status(404).json({ message: 'User not found' });
       res.json({ 
         _id: id, 
@@ -3136,7 +3136,7 @@ app.put('/api/users/:id', authenticateToken, requireAdmin,
 app.delete('/api/users/:id', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const id = req.params.id;
-    const result = await pool.query('DELETE FROM users WHERE id = $1', [id]);
+    const result = await db.query('DELETE FROM users WHERE id = $1', [id]);
     if (result.rowCount === 0) return res.status(404).json({ message: 'User not found' });
     res.status(204).send();
   } catch (err) {
@@ -3151,7 +3151,7 @@ app.get('/api/users/mentions', authenticateToken, async (req, res) => {
   try {
     // Get only basic user info needed for mentions (name, email)
     // No admin privileges required since this is just for mention autocomplete
-    const result = await pool.query('SELECT id, name, email FROM users ORDER BY name ASC');
+    const result = await db.query('SELECT id, name, email FROM users ORDER BY name ASC');
     const users = result.rows.map(u => ({
       id: u.id,
       name: u.name,
@@ -3175,7 +3175,7 @@ app.get('/api/user-column-preferences/:pageName', authenticateToken, async (req,
     const userId = req.user.id;
     const pageName = req.params.pageName;
     
-    const result = await pool.query(
+    const result = await db.query(
       'SELECT column_settings FROM user_column_preferences WHERE user_id = $1 AND page_name = $2',
       [userId, pageName]
     );
@@ -3207,13 +3207,13 @@ app.post('/api/user-column-preferences/:pageName', authenticateToken, [
     const { columnSettings } = req.body;
     
     // Upsert operation - update if exists, insert if not
-    const result = await pool.query(`
+    const result = await db.query(`
       INSERT INTO user_column_preferences (user_id, page_name, column_settings, updated_at)
-      VALUES ($1, $2, $3, NOW())
+      VALUES ($1, $2, $3, datetime('now'))
       ON CONFLICT (user_id, page_name)
       DO UPDATE SET 
         column_settings = EXCLUDED.column_settings,
-        updated_at = NOW()
+        updated_at = datetime('now')
       RETURNING id
     `, [userId, pageName, JSON.stringify(columnSettings)]);
     
@@ -3234,7 +3234,7 @@ app.delete('/api/user-column-preferences/:pageName', authenticateToken, async (r
     const userId = req.user.id;
     const pageName = req.params.pageName;
     
-    const result = await pool.query(
+    const result = await db.query(
       'DELETE FROM user_column_preferences WHERE user_id = $1 AND page_name = $2',
       [userId, pageName]
     );
@@ -3280,7 +3280,7 @@ app.get('/api/opps-monitoring/export', async (req, res) => {
     const columns = [
       'encoded_date','project_name','project_code','rev','client','solutions','sol_particulars','industries','ind_particulars','date_received','client_deadline','decision','account_mgr','pic','bom','status','submitted_date','margin','final_amt','opp_status','date_awarded_lost','lost_rca','l_particulars','a','c','r','u','d','remarks_comments','uid','forecast_date','revision'
     ];
-    const result = await pool.query('SELECT ' + columns.map(c => `"${c}"`).join(', ') + ' FROM opps_monitoring ORDER BY encoded_date ASC');
+    const result = await db.query('SELECT ' + columns.map(c => `"${c}"`).join(', ') + ' FROM opps_monitoring ORDER BY encoded_date ASC');
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', 'attachment; filename="opps_monitoring_import_template.csv"');
     csv.write([columns, ...result.rows.map(row => columns.map(c => row[c]))], { headers: false }).pipe(res);
@@ -4609,7 +4609,7 @@ app.get('/api/project/:uid/story', authenticateToken, async (req, res) => {
 
   try {
     // Use the existing get_proposal_story function
-    const result = await pool.query(
+    const result = await db.query(
       'SELECT get_proposal_story($1) as story_data',
       [uid]
     );
@@ -4716,7 +4716,7 @@ app.get('/api/project/:uid/schedule', authenticateToken, async (req, res) => {
 
   try {
     // Get project schedule entries with enhanced details
-    const result = await pool.query(
+    const result = await db.query(
       `SELECT 
         ps.*,
         om.project_name,
@@ -4781,7 +4781,7 @@ app.put('/api/project/:uid/schedule', authenticateToken, [
 
   try {
     // Use the existing add_proposal_to_schedule function
-    const result = await pool.query(
+    const result = await db.query(
       'SELECT add_proposal_to_schedule($1, $2, $3, $4, $5) as result',
       [uid, proposal_name, week_start_date, day_index, req.user.username]
     );
@@ -4828,7 +4828,7 @@ app.get('/api/proposal-workbench/schedule', authenticateToken, async (req, res) 
       // For viewing other users' schedules, we'll search by their name in the schedule data
       // First try to find if they exist as a user in the users table
       console.log(`[GET /api/proposal-workbench/schedule] Looking up user: ${user_id}`);
-      const userLookupResult = await pool.query(
+      const userLookupResult = await db.query(
         'SELECT id, name FROM users WHERE name = $1',
         [user_id]
       );
@@ -4855,12 +4855,12 @@ app.get('/api/proposal-workbench/schedule', authenticateToken, async (req, res) 
       console.log(`[GET /api/proposal-workbench/schedule] Performing name-based search for: ${searchName}`);
       
       // Custom query to find proposals where the user appears as PIC/BOM/Account Manager
-      result = await pool.query(`
+      result = await db.query(`
         WITH proposal_data AS (
           SELECT 
             ps.day_index,
-            JSONB_AGG(
-              JSONB_BUILD_OBJECT(
+            json_group_array(
+              json_object(
                 'id', ps.proposal_id,
                 'name', ps.proposal_name,
                 'schedule_id', ps.id,
@@ -4884,8 +4884,8 @@ app.get('/api/proposal-workbench/schedule', authenticateToken, async (req, res) 
         task_data AS (
           SELECT 
             ct.day_index,
-            JSONB_AGG(
-              JSONB_BUILD_OBJECT(
+            json_group_array(
+              json_object(
                 'id', ct.task_id,
                 'title', ct.title,
                 'description', ct.description,
@@ -4907,15 +4907,15 @@ app.get('/api/proposal-workbench/schedule', authenticateToken, async (req, res) 
         )
         SELECT 
           COALESCE(pd.day_index, td.day_index) as day_index,
-          COALESCE(pd.proposals, '[]'::JSONB) as proposals,
-          COALESCE(td.custom_tasks, '[]'::JSONB) as custom_tasks
+          COALESCE(pd.proposals, '[]') as proposals,
+          COALESCE(td.custom_tasks, '[]') as custom_tasks
         FROM proposal_data pd
         FULL OUTER JOIN task_data td ON pd.day_index = td.day_index
         ORDER BY day_index;
       `, [week, searchName]);
     } else {
       // Use the standard database function for registered users
-      result = await pool.query(
+      result = await db.query(
         'SELECT * FROM get_weekly_schedule_with_tasks($1, $2)',
         [week, targetUserId]
       );
@@ -4971,7 +4971,7 @@ app.post('/api/proposal-workbench/schedule/proposals/add', authenticateToken, [
   
   try {
     // Get proposal details first
-    const proposalResult = await pool.query(
+    const proposalResult = await db.query(
       'SELECT uid, project_name FROM opps_monitoring WHERE uid = $1',
       [proposalId]
     );
@@ -4983,7 +4983,7 @@ app.post('/api/proposal-workbench/schedule/proposals/add', authenticateToken, [
     const proposal = proposalResult.rows[0];
     
     // Use the database function to add proposal to schedule
-    const result = await pool.query(
+    const result = await db.query(
       'SELECT add_proposal_to_schedule($1, $2, $3, $4, $5) as success',
       [proposalId, proposal.project_name, weekStartDate, dayIndex, username]
     );
@@ -5028,7 +5028,7 @@ app.put('/api/proposal-workbench/schedule/tasks/:taskId/move', authenticateToken
   
   try {
     // Use the database function to move the custom task
-    const result = await pool.query(
+    const result = await db.query(
       'SELECT move_custom_task($1, $2, $3, $4) as success',
       [taskId, req.user.id, newWeekStartDate, newDayIndex]
     );
@@ -5074,7 +5074,7 @@ app.post('/api/proposal-workbench/schedule/tasks/add', authenticateToken, [
   const { taskId, weekStartDate, dayIndex, title, description, time, isAllDay, comment } = req.body;
   
   try {
-    const result = await pool.query(
+    const result = await db.query(
       'SELECT add_custom_task($1, $2, $3, $4, $5, $6, $7, $8, $9) as success',
       [taskId, req.user.id, weekStartDate, dayIndex, title, description, time, isAllDay || false, comment]
     );
@@ -5119,7 +5119,7 @@ app.put('/api/proposal-workbench/schedule/tasks/:taskId', authenticateToken, [
   const { title, description, time, isAllDay, comment } = req.body;
   
   try {
-    const result = await pool.query(
+    const result = await db.query(
       'SELECT update_custom_task($1, $2, $3, $4, $5, $6, $7) as success',
       [taskId, req.user.id, title, description, time, isAllDay || false, comment]
     );
@@ -5153,7 +5153,7 @@ app.delete('/api/proposal-workbench/schedule/tasks/:taskId', authenticateToken, 
   console.log(`[DELETE /api/proposal-workbench/schedule/tasks/${taskId}] === START ===`);
   
   try {
-    const result = await pool.query(
+    const result = await db.query(
       'SELECT delete_custom_task($1, $2) as success',
       [taskId, req.user.id]
     );
@@ -5183,7 +5183,7 @@ app.delete('/api/proposal-workbench/schedule/tasks/:taskId', authenticateToken, 
 // Debug endpoint to check users in database
 app.get('/api/debug/users', authenticateToken, async (req, res) => {
   try {
-    const result = await pool.query(
+    const result = await db.query(
       'SELECT id, name, email FROM users ORDER BY name'
     );
     res.json({

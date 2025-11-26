@@ -6,7 +6,13 @@
       "Read(//c/Users/Lenovo/Documents/GitHub/**)",
       "Bash(xcopy:*)",
       "Bash(robocopy:*)",
-      "Bash(exit 0)"
+      "Bash(exit 0)",
+      "Bash(dir:*)",
+      "Bash(for file in backend/routes/*.js)",
+      "Bash(do cp \"$file\" \"$file.backup\")",
+      "Bash(done)",
+      "Bash(curl:*)",
+      "Bash(git add:*)"
     ],
     "deny": [],
     "ask": []
