@@ -514,37 +514,115 @@ router.get('/schedule', async (req, res) => {
             console.log(`[SCHEDULE] User ${currentUserName} viewing their own schedule`);
         }
         
-        // Use the original database function to get organized schedule data including custom tasks
-        const result = await db.query('SELECT * FROM get_weekly_schedule_with_tasks(?, ?)', [week, targetUserId]);
-        
+        // Get proposals for the week
+        const proposalQuery = `
+            SELECT
+                ps.day_index,
+                ps.proposal_id as id,
+                ps.proposal_name as name,
+                ps.id as schedule_id,
+                om.project_name,
+                om.client,
+                om.status,
+                om.final_amt,
+                om.pic,
+                ps.user_id,
+                u.name as created_by
+            FROM proposal_schedule ps
+            LEFT JOIN opps_monitoring om ON ps.proposal_id = om.uid
+            LEFT JOIN users u ON ps.user_id = u.id
+            WHERE ps.week_start_date = ?
+            ${targetUserId ? 'AND ps.user_id = ?' : ''}
+            ORDER BY ps.day_index
+        `;
+
+        const proposalParams = targetUserId ? [week, targetUserId] : [week];
+        const proposalResult = await db.query(proposalQuery, proposalParams);
+
+        // Get custom tasks for the week
+        const taskQuery = `
+            SELECT
+                ct.day_index,
+                ct.task_id as id,
+                ct.title,
+                ct.description,
+                ct.time,
+                ct.is_all_day as isAllDay,
+                ct.comment,
+                ct.id as db_id,
+                ct.user_id,
+                u.name as created_by
+            FROM custom_tasks ct
+            LEFT JOIN users u ON ct.user_id = u.id
+            WHERE ct.week_start_date = ?
+            ${targetUserId ? 'AND ct.user_id = ?' : ''}
+            ORDER BY ct.day_index
+        `;
+
+        const taskParams = targetUserId ? [week, targetUserId] : [week];
+        const taskResult = await db.query(taskQuery, taskParams);
+
         // Transform the result into the expected format
         const scheduleForWeek = {
             proposals: {},
             customTasks: {}
         };
-        
-        // Organize proposals and custom tasks by day
-        result.rows.forEach(row => {
-            if (row.proposals && row.proposals.length > 0) {
-                // Apply PIC filter if specified
-                let filteredProposals = row.proposals;
-                if (pic && pic.trim() !== '') {
-                    filteredProposals = row.proposals.filter(proposal => 
-                        proposal.pic === pic || proposal.bom === pic
-                    );
-                    console.log(`[SCHEDULE] PIC filter applied: ${row.proposals.length} -> ${filteredProposals.length} proposals`);
-                }
-                
-                if (filteredProposals.length > 0) {
-                    scheduleForWeek.proposals[row.day_index] = filteredProposals;
-                }
+
+        // Organize proposals by day
+        proposalResult.rows.forEach(row => {
+            // Apply PIC filter if specified
+            if (pic && pic.trim() !== '' && row.pic !== pic) {
+                return; // Skip this proposal
             }
-            if (row.custom_tasks && row.custom_tasks.length > 0) {
-                scheduleForWeek.customTasks[row.day_index] = row.custom_tasks;
+
+            if (!scheduleForWeek.proposals[row.day_index]) {
+                scheduleForWeek.proposals[row.day_index] = [];
             }
+
+            scheduleForWeek.proposals[row.day_index].push({
+                id: row.id,
+                name: row.name,
+                schedule_id: row.schedule_id,
+                project_name: row.project_name,
+                client: row.client,
+                status: row.status,
+                final_amt: row.final_amt,
+                pic: row.pic,
+                user_id: row.user_id,
+                created_by: row.created_by,
+                type: 'proposal'
+            });
         });
-        
-        console.log(`[SCHEDULE] Retrieved ${result.rows.length} scheduled days for week ${week} (user: ${targetUserId || 'all'}, pic: ${pic || 'all'})`);
+
+        // Organize custom tasks by day
+        taskResult.rows.forEach(row => {
+            if (!scheduleForWeek.customTasks[row.day_index]) {
+                scheduleForWeek.customTasks[row.day_index] = [];
+            }
+
+            scheduleForWeek.customTasks[row.day_index].push({
+                id: row.id,
+                title: row.title,
+                description: row.description,
+                time: row.time,
+                isAllDay: row.isAllDay,
+                comment: row.comment,
+                db_id: row.db_id,
+                user_id: row.user_id,
+                created_by: row.created_by,
+                type: 'custom'
+            });
+        });
+
+        // Apply PIC filter logging if specified
+        if (pic && pic.trim() !== '') {
+            const totalProposals = proposalResult.rows.length;
+            const filteredCount = Object.values(scheduleForWeek.proposals).reduce((sum, arr) => sum + arr.length, 0);
+            console.log(`[SCHEDULE] PIC filter applied: ${totalProposals} -> ${filteredCount} proposals`);
+        }
+
+        const totalDays = Object.keys({...scheduleForWeek.proposals, ...scheduleForWeek.customTasks}).length;
+        console.log(`[SCHEDULE] Retrieved ${totalDays} scheduled days for week ${week} (user: ${targetUserId || 'all'}, pic: ${pic || 'all'})`);
         res.json(scheduleForWeek);
         
     } catch (error) {
@@ -886,17 +964,42 @@ router.get('/schedule/users', async (req, res) => {
         // This enables users to see who has scheduled items for better coordination
         
         console.log('[SCHEDULE] Fetching users with scheduled items');
-        
-        // Use the database function to get users with scheduled items
-        const result = await db.query('SELECT * FROM get_schedule_users()');
-        
+
+        // Get users with scheduled items (SQLite version)
+        const query = `
+            SELECT
+                user_id,
+                user_name,
+                SUM(count) as schedule_count
+            FROM (
+                SELECT ps.user_id, u.name as user_name, COUNT(*) as count
+                FROM proposal_schedule ps
+                LEFT JOIN users u ON ps.user_id = u.id
+                WHERE ps.user_id IS NOT NULL
+                GROUP BY ps.user_id, u.name
+
+                UNION ALL
+
+                SELECT ct.user_id, u.name as user_name, COUNT(*) as count
+                FROM custom_tasks ct
+                LEFT JOIN users u ON ct.user_id = u.id
+                WHERE ct.user_id IS NOT NULL
+                GROUP BY ct.user_id, u.name
+            ) schedule_users
+            WHERE user_id IS NOT NULL
+            GROUP BY user_id, user_name
+            ORDER BY schedule_count DESC, user_name
+        `;
+
+        const result = await db.query(query);
+
         // Transform the result to match expected format
         const users = result.rows.map(row => ({
             id: row.user_id,
             username: row.user_name,
-            schedule_count: row.schedule_count
+            schedule_count: parseInt(row.schedule_count)
         }));
-        
+
         console.log(`[SCHEDULE] Retrieved ${users.length} users with scheduled items`);
         res.json(users);
         

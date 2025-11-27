@@ -70,13 +70,16 @@ router.get('/realtime/account-managers/:name/metrics', async (req, res) => {
         const { name } = req.params;
         const { comparison_date, comparison_type } = req.query;
 
-        // Validate that the person is actually an account manager
+        // Validate that the person is actually an account manager (SQLite version)
         const validationQuery = `
-            SELECT is_account_manager(?) as is_valid
+            SELECT COUNT(*) as count
+            FROM opps_monitoring
+            WHERE account_mgr = ?
+            LIMIT 1
         `;
         const validationResult = await db.query(validationQuery, [name]);
-        
-        if (!validationResult.rows[0].is_valid) {
+
+        if (!validationResult.rows[0].count || validationResult.rows[0].count === 0) {
             return res.status(404).json({
                 error: 'Invalid account manager',
                 message: `${name} is not a valid account manager. Only active account managers can be tracked.`
@@ -116,7 +119,7 @@ router.get('/realtime/account-managers/:name/metrics', async (req, res) => {
                 
                 -- Activity metrics
                 MAX(date_received) as last_activity,
-                COUNT(CASE WHEN date_received = CURRENT_DATE THEN 1 END) as today_updates
+                COUNT(CASE WHEN date_received = date('now') THEN 1 END) as today_updates
                 
             FROM opps_monitoring
             WHERE account_mgr = ?
@@ -413,7 +416,7 @@ router.post('/realtime/snapshots/auto-create', async (req, res) => {
                         declined_count = EXCLUDED.declined_count,
                         revised_count = EXCLUDED.revised_count,
                         created_by = EXCLUDED.created_by,
-                        created_at = CURRENT_TIMESTAMP
+                        created_at = datetime('now')
                     RETURNING id, created_at
                 `;
 

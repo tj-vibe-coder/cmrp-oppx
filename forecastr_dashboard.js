@@ -181,8 +181,9 @@ function renderForecastDashboard(data, statusFilter = 'all') {
 
     // Filter projects based on all active filters
     let filteredProjects = data.projectDetails.filter(project => {
-        // Apply OP Status filter
-        if (statusFilter !== 'all' && project.status !== statusFilter) {
+        // Apply OP Status filter (backend sends opp_status, not status)
+        const projectStatus = project.opp_status || project.status;
+        if (statusFilter !== 'all' && projectStatus !== statusFilter) {
             return false;
         }
         // Apply Solution filter

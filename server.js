@@ -1021,10 +1021,19 @@ function robustParseDate(val) {
     const trimmedVal = val.trim();
     let d = null;
 
-    // Try ISO format (YYYY-MM-DD...) - Date constructor handles this as UTC if Z or offset is not present
+    // Try ISO format (YYYY-MM-DD...) - Handle both with and without time component
     if (trimmedVal.match(/^\d{4}-\d{1,2}-\d{1,2}/)) {
-        d = new Date(trimmedVal + 'T00:00:00Z'); // Append Z to ensure UTC interpretation
-        if (!isNaN(d)) return d;
+        // If already has time component, parse as-is
+        if (trimmedVal.includes('T')) {
+            d = new Date(trimmedVal);
+        } else {
+            // If just date, append time for UTC midnight
+            d = new Date(trimmedVal + 'T00:00:00Z');
+        }
+        if (!isNaN(d)) {
+            // Normalize to UTC midnight
+            return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+        }
     }
     // Try MM/DD/YYYY or M/D/YYYY
     if (trimmedVal.match(/^\d{1,2}\/\d{1,2}\/\d{4}$/)) {
@@ -2088,9 +2097,9 @@ app.get('/api/forecast-dashboard', async (req, res) => {
     
     console.log('[API /api/forecast-dashboard] Starting database query...');
     
-    // *** MODIFIED: Added uid, account_mgr, and pic to the SELECT statement for auto-filtering support ***
+    // *** MODIFIED: Added uid, account_mgr, pic, client, and solutions to the SELECT statement ***
     let sql = `
-        SELECT uid, forecast_date, final_amt, opp_status, project_name, account_mgr, pic
+        SELECT uid, forecast_date, final_amt, opp_status, project_name, account_mgr, pic, client, solutions
         FROM opps_monitoring
         WHERE forecast_date IS NOT NULL
           AND (decision IS NULL OR decision NOT IN ('DECLINE', 'DECLINED'))
@@ -2233,14 +2242,18 @@ app.get('/api/forecast-dashboard', async (req, res) => {
         }
     });
 
-    return res.json({
+    const response = {
         totalForecastCount,
         totalForecastAmount,
         nextMonthForecastCount,
         nextMonthForecastAmount,
         forecastMonthlySummary,
         projectDetails
-    });
+    };
+
+    console.log(`[API /api/forecast-dashboard] Sending response: totalCount=${totalForecastCount}, totalAmount=${totalForecastAmount}, projectDetails=${projectDetails.length} items, monthlySummary=${forecastMonthlySummary.length} months`);
+
+    return res.json(response);
   } catch (error) {
     console.error('[API /api/forecast-dashboard] Error generating forecast dashboard data:', error);
     console.error('[API /api/forecast-dashboard] Error stack:', error.stack);
@@ -4848,95 +4861,149 @@ app.get('/api/proposal-workbench/schedule', authenticateToken, async (req, res) 
       }
     }
     
-    // Use the database function to get complete schedule data
-    let result;
+    // Get schedule data from database (SQLite version)
+    let proposalResult, taskResult;
+
     if (typeof targetUserId === 'string' && targetUserId.startsWith('name:')) {
       // Handle name-based search for users who aren't registered but appear in proposals
       const searchName = targetUserId.replace('name:', '');
       console.log(`[GET /api/proposal-workbench/schedule] Performing name-based search for: ${searchName}`);
-      
-      // Custom query to find proposals where the user appears as PIC/BOM/Account Manager
-      result = await db.query(`
-        WITH proposal_data AS (
-          SELECT
-            ps.day_index,
-            JSONB_AGG(
-              JSONB_BUILD_OBJECT(
-                'id', ps.proposal_id,
-                'name', ps.proposal_name,
-                'schedule_id', ps.id,
-                'project_name', om.project_name,
-                'client', om.client,
-                'status', om.status,
-                'final_amt', om.final_amt,
-                'pic', om.pic,
-                'user_id', ps.user_id,
-                'created_by', COALESCE(u.name, ps.scheduled_by),
-                'type', 'proposal'
-              )
-            ) as proposals
-          FROM proposal_schedule ps
-          LEFT JOIN opps_monitoring om ON ps.proposal_id = om.uid
-          LEFT JOIN users u ON ps.user_id = u.id
-          WHERE ps.week_start_date = ?
-          AND (om.pic = ? OR om.bom = ? OR om.account_mgr = ?)
-          GROUP BY ps.day_index
-        ),
-        task_data AS (
-          SELECT
-            ct.day_index,
-            JSONB_AGG(
-              JSONB_BUILD_OBJECT(
-                'id', ct.task_id,
-                'title', ct.title,
-                'description', ct.description,
-                'time', ct.time,
-                'isAllDay', ct.is_all_day,
-                'comment', ct.comment,
-                'db_id', ct.id,
-                'user_id', ct.user_id,
-                'created_by', u.name,
-                'type', 'custom'
-              )
-            ) as custom_tasks
-          FROM custom_tasks ct
-          LEFT JOIN users u ON ct.user_id = u.id
-          LEFT JOIN users u2 ON u2.name = ?
-          WHERE ct.week_start_date = ?
-          AND ct.user_id = u2.id
-          GROUP BY ct.day_index
-        )
+
+      // Find proposals where the user appears as PIC/BOM/Account Manager
+      proposalResult = await db.query(`
         SELECT
-          COALESCE(pd.day_index, td.day_index) as day_index,
-          COALESCE(pd.proposals, '[]'::JSONB) as proposals,
-          COALESCE(td.custom_tasks, '[]'::JSONB) as custom_tasks
-        FROM proposal_data pd
-        FULL OUTER JOIN task_data td ON pd.day_index = td.day_index
-        ORDER BY day_index;
-      `, [week, searchName, searchName, searchName, searchName, week]);
+          ps.day_index,
+          ps.proposal_id as id,
+          ps.proposal_name as name,
+          ps.id as schedule_id,
+          om.project_name,
+          om.client,
+          om.status,
+          om.final_amt,
+          om.pic,
+          ps.user_id,
+          COALESCE(u.name, ps.scheduled_by) as created_by
+        FROM proposal_schedule ps
+        LEFT JOIN opps_monitoring om ON ps.proposal_id = om.uid
+        LEFT JOIN users u ON ps.user_id = u.id
+        WHERE ps.week_start_date = ?
+        AND (om.pic = ? OR om.bom = ? OR om.account_mgr = ?)
+        ORDER BY ps.day_index
+      `, [week, searchName, searchName, searchName]);
+
+      // Find custom tasks for this user by name
+      taskResult = await db.query(`
+        SELECT
+          ct.day_index,
+          ct.task_id as id,
+          ct.title,
+          ct.description,
+          ct.time,
+          ct.is_all_day as isAllDay,
+          ct.comment,
+          ct.id as db_id,
+          ct.user_id,
+          u.name as created_by
+        FROM custom_tasks ct
+        LEFT JOIN users u ON ct.user_id = u.id
+        LEFT JOIN users u2 ON u2.name = ?
+        WHERE ct.week_start_date = ?
+        AND ct.user_id = u2.id
+        ORDER BY ct.day_index
+      `, [searchName, week]);
     } else {
-      // Use the standard database function for registered users
-      result = await db.query(
-        'SELECT * FROM get_weekly_schedule_with_tasks(?, ?)',
-        [week, targetUserId]
-      );
+      // Standard query for registered users
+      const userFilter = targetUserId ? 'AND ps.user_id = ?' : '';
+      const proposalParams = targetUserId ? [week, targetUserId] : [week];
+
+      proposalResult = await db.query(`
+        SELECT
+          ps.day_index,
+          ps.proposal_id as id,
+          ps.proposal_name as name,
+          ps.id as schedule_id,
+          om.project_name,
+          om.client,
+          om.status,
+          om.final_amt,
+          om.pic,
+          ps.user_id,
+          COALESCE(u.name, ps.scheduled_by) as created_by
+        FROM proposal_schedule ps
+        LEFT JOIN opps_monitoring om ON ps.proposal_id = om.uid
+        LEFT JOIN users u ON ps.user_id = u.id
+        WHERE ps.week_start_date = ?
+        ${userFilter}
+        ORDER BY ps.day_index
+      `, proposalParams);
+
+      const taskParams = targetUserId ? [week, targetUserId] : [week];
+      taskResult = await db.query(`
+        SELECT
+          ct.day_index,
+          ct.task_id as id,
+          ct.title,
+          ct.description,
+          ct.time,
+          ct.is_all_day as isAllDay,
+          ct.comment,
+          ct.id as db_id,
+          ct.user_id,
+          u.name as created_by
+        FROM custom_tasks ct
+        LEFT JOIN users u ON ct.user_id = u.id
+        WHERE ct.week_start_date = ?
+        ${userFilter}
+        ORDER BY ct.day_index
+      `, taskParams);
     }
-    
+
     // Transform the data into the format expected by the frontend
     const proposals = {};
     const customTasks = {};
-    
-    result.rows.forEach(row => {
-      if (row.proposals && row.proposals.length > 0) {
-        proposals[row.day_index] = row.proposals;
+
+    // Organize proposals by day
+    proposalResult.rows.forEach(row => {
+      if (!proposals[row.day_index]) {
+        proposals[row.day_index] = [];
       }
-      if (row.custom_tasks && row.custom_tasks.length > 0) {
-        customTasks[row.day_index] = row.custom_tasks;
-      }
+      proposals[row.day_index].push({
+        id: row.id,
+        name: row.name,
+        schedule_id: row.schedule_id,
+        project_name: row.project_name,
+        client: row.client,
+        status: row.status,
+        final_amt: row.final_amt,
+        pic: row.pic,
+        user_id: row.user_id,
+        created_by: row.created_by,
+        type: 'proposal'
+      });
     });
-    
-    console.log(`[GET /api/proposal-workbench/schedule] Retrieved ${result.rows.length} day entries`);
-    
+
+    // Organize custom tasks by day
+    taskResult.rows.forEach(row => {
+      if (!customTasks[row.day_index]) {
+        customTasks[row.day_index] = [];
+      }
+      customTasks[row.day_index].push({
+        id: row.id,
+        title: row.title,
+        description: row.description,
+        time: row.time,
+        isAllDay: row.isAllDay,
+        comment: row.comment,
+        db_id: row.db_id,
+        user_id: row.user_id,
+        created_by: row.created_by,
+        type: 'custom'
+      });
+    });
+
+    const totalDays = Object.keys({...proposals, ...customTasks}).length;
+    console.log(`[GET /api/proposal-workbench/schedule] Retrieved ${totalDays} day entries (${proposalResult.rows.length} proposals, ${taskResult.rows.length} tasks)`);
+
     res.json({
       success: true,
       proposals: proposals,
