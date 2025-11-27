@@ -3,6 +3,7 @@
  * Purpose: Handle account manager-specific snapshot storage and retrieval
  */
 
+const db = require('../../db_adapter');
 const express = require('express');
 const router = express.Router();
 
@@ -25,14 +26,14 @@ router.get('/snapshots/:type/:accountManager', async (req, res) => {
         // Query database for latest snapshot of specified type and account manager
         const query = `
             SELECT *
-            FROM account_manager_snapshots 
-            WHERE snapshot_type = $1 
-            AND account_manager = $2
-            ORDER BY saved_date DESC 
+            FROM account_manager_snapshots
+            WHERE snapshot_type = ?
+            AND account_manager = ?
+            ORDER BY saved_date DESC
             LIMIT 1
         `;
 
-        const result = await req.db.query(query, [type, accountManager]);
+        const result = await db.query(query, [type, accountManager]);
 
         if (result.rows.length === 0) {
             return res.status(404).json({ 

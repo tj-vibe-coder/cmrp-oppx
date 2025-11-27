@@ -12,7 +12,16 @@
       "Bash(do cp \"$file\" \"$file.backup\")",
       "Bash(done)",
       "Bash(curl:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)",
+      "Bash(taskkill:*)",
+      "Bash(npm start)",
+      "Bash(tasklist:*)",
+      "Bash(tskill:*)",
+      "Bash(grep:*)"
     ],
     "deny": [],
     "ask": []

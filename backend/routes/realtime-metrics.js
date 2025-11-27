@@ -4,6 +4,7 @@
  * Features: Live metrics, auto-snapshots, performance optimized queries
  */
 
+const db = require('../../db_adapter');
 const express = require('express');
 const router = express.Router();
 
@@ -32,7 +33,7 @@ router.get('/realtime/account-managers', async (req, res) => {
             ORDER BY submitted_amount DESC, om.account_mgr
         `;
 
-        const result = await req.db.query(query);
+        const result = await db.query(query);
 
         res.json({
             success: true,
@@ -71,9 +72,9 @@ router.get('/realtime/account-managers/:name/metrics', async (req, res) => {
 
         // Validate that the person is actually an account manager
         const validationQuery = `
-            SELECT is_account_manager($1) as is_valid
+            SELECT is_account_manager(?) as is_valid
         `;
-        const validationResult = await req.db.query(validationQuery, [name]);
+        const validationResult = await db.query(validationQuery, [name]);
         
         if (!validationResult.rows[0].is_valid) {
             return res.status(404).json({
@@ -117,12 +118,12 @@ router.get('/realtime/account-managers/:name/metrics', async (req, res) => {
                 MAX(date_received) as last_activity,
                 COUNT(CASE WHEN date_received = CURRENT_DATE THEN 1 END) as today_updates
                 
-            FROM opps_monitoring 
-            WHERE account_mgr = $1
+            FROM opps_monitoring
+            WHERE account_mgr = ?
             GROUP BY account_mgr
         `;
 
-        const metricsResult = await req.db.query(metricsQuery, [name]);
+        const metricsResult = await db.query(metricsQuery, [name]);
 
         if (metricsResult.rows.length === 0) {
             return res.status(404).json({
@@ -171,13 +172,13 @@ router.get('/realtime/account-managers/:name/metrics', async (req, res) => {
                         -- Revision metrics
                         COUNT(CASE WHEN opp_status = 'Revised' THEN 1 END) as revised_count
                         
-                    FROM opps_monitoring 
-                    WHERE account_mgr = $1
-                    AND date_received <= $2
+                    FROM opps_monitoring
+                    WHERE account_mgr = ?
+                    AND date_received <= ?
                     GROUP BY account_mgr
                 `;
-                
-                const customComparisonResult = await req.db.query(customComparisonQuery, [name, comparison_date]);
+
+                const customComparisonResult = await db.query(customComparisonQuery, [name, comparison_date]);
                 
                 if (customComparisonResult.rows.length > 0) {
                     comparisonData = customComparisonResult.rows[0];
@@ -208,14 +209,14 @@ router.get('/realtime/account-managers/:name/metrics', async (req, res) => {
                 // For weekly/monthly snapshots, use account manager snapshots table
                 const comparisonQuery = `
                     SELECT *
-                    FROM account_manager_snapshots 
-                    WHERE account_manager = $1 
-                    AND snapshot_type = $2 
-                    AND snapshot_date = $3
+                    FROM account_manager_snapshots
+                    WHERE account_manager = ?
+                    AND snapshot_type = ?
+                    AND snapshot_date = ?
                     LIMIT 1
                 `;
-                
-                const comparisonResult = await req.db.query(comparisonQuery, [name, comparison_type, comparison_date]);
+
+                const comparisonResult = await db.query(comparisonQuery, [name, comparison_type, comparison_date]);
                 
                 if (comparisonResult.rows.length > 0) {
                     comparisonData = comparisonResult.rows[0];
@@ -363,7 +364,7 @@ router.post('/realtime/snapshots/auto-create', async (req, res) => {
             ORDER BY account_mgr
         `;
 
-        const metricsResult = await req.db.query(metricsQuery);
+        const metricsResult = await db.query(metricsQuery);
 
         if (metricsResult.rows.length === 0) {
             return res.status(400).json({
@@ -388,10 +389,10 @@ router.post('/realtime/snapshots/auto-create', async (req, res) => {
                         pending_count, declined_count, revised_count,
                         is_manual, created_by
                     ) VALUES (
-                        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 
-                        $15, $16, $17, $18, $19, $20, $21, FALSE, $22
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                        ?, ?, ?, ?, ?, ?, ?, FALSE, ?
                     )
-                    ON CONFLICT (account_manager, snapshot_type, snapshot_date) 
+                    ON CONFLICT (account_manager, snapshot_type, snapshot_date)
                     DO UPDATE SET
                         total_opportunities = EXCLUDED.total_opportunities,
                         submitted_count = EXCLUDED.submitted_count,
@@ -426,7 +427,7 @@ router.post('/realtime/snapshots/auto-create', async (req, res) => {
                     createdBy
                 ];
 
-                const insertResult = await req.db.query(insertQuery, values);
+                const insertResult = await db.query(insertQuery, values);
                 
                 createdSnapshots.push({
                     account_manager: metrics.account_manager,
@@ -499,7 +500,7 @@ router.get('/realtime/metrics/global', async (req, res) => {
             FROM opps_monitoring
         `;
 
-        const result = await req.db.query(query);
+        const result = await db.query(query);
         const metrics = result.rows[0];
 
         res.json({

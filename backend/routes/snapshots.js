@@ -6,6 +6,7 @@
 
 const express = require('express');
 const router = express.Router();
+const db = require('../../db_adapter');
 
 /**
  * GET /api/snapshots/:type
@@ -49,13 +50,13 @@ router.get('/snapshots/:type', async (req, res) => {
                 revised_count,
                 saved_date,
                 created_at
-            FROM dashboard_snapshots 
-            WHERE snapshot_type = $1 
-            ORDER BY snapshot_date DESC, created_at DESC 
+            FROM dashboard_snapshots
+            WHERE snapshot_type = ?
+            ORDER BY snapshot_date DESC, created_at DESC
             LIMIT 1
         `;
 
-        const result = await req.db.query(query, [type]);
+        const result = await db.query(query, [type]);
 
         if (result.rows.length === 0) {
             return res.status(404).json({ 
@@ -125,15 +126,15 @@ router.post('/snapshots', async (req, res) => {
         const query = `
             INSERT INTO dashboard_snapshots (
                 snapshot_type, snapshot_date, total_opportunities, submitted_count, submitted_amount,
-                op100_count, op100_amount, op90_count, op90_amount, 
+                op100_count, op100_amount, op90_count, op90_amount,
                 op60_count, op60_amount, op30_count, op30_amount,
                 lost_count, lost_amount, inactive_count, ongoing_count,
                 pending_count, declined_count, revised_count
             ) VALUES (
-                $1, CURRENT_DATE, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-                $11, $12, $13, $14, $15, $16, $17, $18, $19
-            ) 
-            ON CONFLICT (snapshot_type) 
+                ?, CURRENT_DATE, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?, ?, ?, ?, ?
+            )
+            ON CONFLICT (snapshot_type)
             DO UPDATE SET
                 snapshot_date = CURRENT_DATE,
                 total_opportunities = EXCLUDED.total_opportunities,
@@ -166,7 +167,7 @@ router.post('/snapshots', async (req, res) => {
             pending_count, declined_count, revised_count
         ];
 
-        const result = await req.db.query(query, values);
+        const result = await db.query(query, values);
 
         res.status(201).json({
             success: true,
@@ -190,11 +191,11 @@ router.post('/snapshots', async (req, res) => {
 router.get('/snapshots', async (req, res) => {
     try {
         const query = `
-            SELECT * FROM dashboard_snapshots 
+            SELECT * FROM dashboard_snapshots
             ORDER BY snapshot_type, created_at DESC
         `;
 
-        const result = await req.db.query(query);
+        const result = await db.query(query);
 
         res.json({
             success: true,
@@ -226,8 +227,8 @@ router.delete('/snapshots/:type', async (req, res) => {
             });
         }
 
-        const query = 'DELETE FROM dashboard_snapshots WHERE snapshot_type = $1 RETURNING *';
-        const result = await req.db.query(query, [type]);
+        const query = 'DELETE FROM dashboard_snapshots WHERE snapshot_type = ? RETURNING *';
+        const result = await db.query(query, [type]);
 
         if (result.rows.length === 0) {
             return res.status(404).json({ 
@@ -269,7 +270,7 @@ router.get('/snapshots/:type/:accountManager', async (req, res) => {
 
         // Query database for latest snapshot of specified type and account manager
         const query = `
-            SELECT 
+            SELECT
                 id,
                 account_manager,
                 snapshot_type,
@@ -292,13 +293,13 @@ router.get('/snapshots/:type/:accountManager', async (req, res) => {
                 declined_count,
                 revised_count,
                 created_at
-            FROM account_manager_snapshots 
-            WHERE snapshot_type = $1 AND account_manager = $2
-            ORDER BY created_at DESC 
+            FROM account_manager_snapshots
+            WHERE snapshot_type = ? AND account_manager = ?
+            ORDER BY created_at DESC
             LIMIT 1
         `;
 
-        const result = await req.db.query(query, [type, accountManager]);
+        const result = await db.query(query, [type, accountManager]);
         
         if (result.rows.length === 0) {
             return res.status(404).json({ 
@@ -395,9 +396,9 @@ router.post('/snapshots/account-manager', async (req, res) => {
                 revised_count,
                 saved_date
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, CURRENT_TIMESTAMP
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP
             )
-            ON CONFLICT (account_manager, snapshot_type) 
+            ON CONFLICT (account_manager, snapshot_type)
             DO UPDATE SET
                 total_opportunities = EXCLUDED.total_opportunities,
                 submitted_count = EXCLUDED.submitted_count,
@@ -444,7 +445,7 @@ router.post('/snapshots/account-manager', async (req, res) => {
             revised_count || 0
         ];
 
-        const result = await req.db.query(query, values);
+        const result = await db.query(query, values);
         
         res.json({
             success: true,
@@ -474,14 +475,14 @@ router.post('/snapshots/account-manager', async (req, res) => {
 router.get('/snapshots/custom-dates', async (req, res) => {
     try {
         const query = `
-            SELECT DISTINCT 
+            SELECT DISTINCT
                 snapshot_date,
                 snapshot_type,
                 created_at,
                 'Global' as description
-            FROM dashboard_snapshots 
+            FROM dashboard_snapshots
             UNION ALL
-            SELECT DISTINCT 
+            SELECT DISTINCT
                 snapshot_date,
                 'custom' as snapshot_type,
                 created_at,
@@ -490,7 +491,7 @@ router.get('/snapshots/custom-dates', async (req, res) => {
             ORDER BY snapshot_date DESC, created_at DESC
         `;
 
-        const result = await req.db.query(query);
+        const result = await db.query(query);
 
         res.json({
             success: true,
@@ -554,19 +555,19 @@ router.post('/snapshots/custom', async (req, res) => {
         const query = `
             INSERT INTO custom_snapshots (
                 snapshot_date, description, total_opportunities, submitted_count, submitted_amount,
-                op100_count, op100_amount, op90_count, op90_amount, 
+                op100_count, op100_amount, op90_count, op90_amount,
                 op60_count, op60_amount, op30_count, op30_amount,
                 lost_count, lost_amount, inactive_count, ongoing_count,
                 pending_count, declined_count, revised_count
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
-                $12, $13, $14, $15, $16, $17, $18, $19, $20
-            ) 
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?, ?, ?, ?, ?
+            )
             RETURNING *
         `;
 
         const values = [
-            snapshot_date, description || `Custom snapshot - ${snapshot_date}`, 
+            snapshot_date, description || `Custom snapshot - ${snapshot_date}`,
             total_opportunities, submitted_count, submitted_amount,
             op100_count, op100_amount, op90_count, op90_amount,
             op60_count, op60_amount, op30_count, op30_amount,
@@ -574,7 +575,7 @@ router.post('/snapshots/custom', async (req, res) => {
             pending_count, declined_count, revised_count
         ];
 
-        const result = await req.db.query(query, values);
+        const result = await db.query(query, values);
 
         res.status(201).json({
             success: true,
@@ -600,7 +601,7 @@ router.get('/snapshots/custom/:date', async (req, res) => {
         const { date } = req.params;
 
         const query = `
-            SELECT 
+            SELECT
                 id,
                 snapshot_date,
                 description,
@@ -623,13 +624,13 @@ router.get('/snapshots/custom/:date', async (req, res) => {
                 declined_count,
                 revised_count,
                 created_at
-            FROM custom_snapshots 
-            WHERE snapshot_date = $1 
-            ORDER BY created_at DESC 
+            FROM custom_snapshots
+            WHERE snapshot_date = ?
+            ORDER BY created_at DESC
             LIMIT 1
         `;
 
-        const result = await req.db.query(query, [date]);
+        const result = await db.query(query, [date]);
 
         if (result.rows.length === 0) {
             return res.status(404).json({ 

@@ -416,10 +416,10 @@ async function getCurrentMetrics(accountManager) {
             COALESCE(SUM(CASE WHEN opp_status = 'LOST' THEN final_amt END), 0) as lost_amount,
             COUNT(CASE WHEN opp_status = 'Inactive' THEN 1 END) as inactive_count,
             COALESCE(SUM(final_amt), 0) as total_pipeline_value
-        FROM opps_monitoring 
-        WHERE account_mgr = $1
+        FROM opps_monitoring
+        WHERE account_mgr = ?
     `;
-    
+
     const result = await db.query(query, [accountManager]);
     return result.rows[0];
 }

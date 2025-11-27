@@ -1,3 +1,4 @@
+const db = require('../../db_adapter');
 const express = require('express');
 const router = express.Router();
 const { body, validationResult } = require('express-validator');
@@ -84,10 +85,10 @@ router.get('/proposals/workbench', async (req, res) => {
                 solutions
             FROM opps_monitoring 
             WHERE status IN ('Submitted', 'On-Going', 'For Approval', 'For Revision', 'Not Yet Started', 'No Decision Yet')
-            ORDER BY 
-                CASE status 
+            ORDER BY
+                CASE status
                     WHEN 'For Revision' THEN 1
-                    WHEN 'On-Going' THEN 2  
+                    WHEN 'On-Going' THEN 2
                     WHEN 'For Approval' THEN 3
                     WHEN 'Submitted' THEN 4
                     WHEN 'Not Yet Started' THEN 5
@@ -97,8 +98,8 @@ router.get('/proposals/workbench', async (req, res) => {
                 submitted_date DESC NULLS LAST,
                 project_name
         `;
-        
-        const result = await req.db.query(query);
+
+        const result = await db.query(query);
         
         // Transform database results to match workbench format
         const proposals = result.rows.map(row => ({
@@ -297,8 +298,8 @@ router.get('/proposals/pics', async (req, res) => {
             GROUP BY person_name
             ORDER BY total_count DESC, person_name
         `;
-        
-        const result = await req.db.query(query);
+
+        const result = await db.query(query);
         
         const pics = result.rows.map(row => ({
             pic: row.person_name,
@@ -326,13 +327,13 @@ router.put('/proposals/:id/status', async (req, res) => {
         const dbStatus = mapWorkbenchStatusToDatabase(status);
         
         const query = `
-            UPDATE opps_monitoring 
-            SET status = $1
-            WHERE uid = $2
+            UPDATE opps_monitoring
+            SET status = ?
+            WHERE uid = ?
             RETURNING uid, project_name, client, status, final_amt, account_mgr, remarks_comments, pic
         `;
-        
-        const result = await req.db.query(query, [dbStatus, id]);
+
+        const result = await db.query(query, [dbStatus, id]);
         
         if (result.rows.length === 0) {
             return res.status(404).json({ error: 'Proposal not found' });
@@ -368,13 +369,13 @@ router.put('/proposals/:id/comment', async (req, res) => {
         console.log(`[DATABASE] Updating proposal ${id} comment`);
         
         const query = `
-            UPDATE opps_monitoring 
-            SET remarks_comments = $1
-            WHERE uid = $2
+            UPDATE opps_monitoring
+            SET remarks_comments = ?
+            WHERE uid = ?
             RETURNING uid, project_name, client, status, final_amt, account_mgr, remarks_comments, pic
         `;
-        
-        const result = await req.db.query(query, [comment, id]);
+
+        const result = await db.query(query, [comment, id]);
         
         if (result.rows.length === 0) {
             return res.status(404).json({ error: 'Proposal not found' });
@@ -415,50 +416,45 @@ router.put('/proposals/:id/fields', async (req, res) => {
         let paramCount = 1;
         
         if (revision_number !== undefined) {
-            updateFields.push(`rev = $${paramCount}`);
+            updateFields.push(`rev = ?`);
             values.push(revision_number);
-            paramCount++;
         }
-        
+
         if (final_amount !== undefined) {
-            updateFields.push(`final_amt = $${paramCount}`);
+            updateFields.push(`final_amt = ?`);
             values.push(final_amount);
-            paramCount++;
         }
-        
+
         if (margin !== undefined) {
-            updateFields.push(`margin = $${paramCount}`);
+            updateFields.push(`margin = ?`);
             values.push(margin);
-            paramCount++;
         }
-        
+
         if (opp_status !== undefined) {
-            updateFields.push(`opp_status = $${paramCount}`);
+            updateFields.push(`opp_status = ?`);
             values.push(opp_status);
-            paramCount++;
         }
-        
+
         if (submission_date !== undefined) {
-            updateFields.push(`submitted_date = $${paramCount}`);
+            updateFields.push(`submitted_date = ?`);
             values.push(submission_date || null);
-            paramCount++;
         }
-        
+
         if (updateFields.length === 0) {
             return res.status(400).json({ error: 'No fields provided to update' });
         }
-        
+
         // Add the proposal ID as the last parameter
         values.push(id);
-        
+
         const query = `
-            UPDATE opps_monitoring 
+            UPDATE opps_monitoring
             SET ${updateFields.join(', ')}
-            WHERE uid = $${paramCount}
+            WHERE uid = ?
             RETURNING uid, project_name, client, status, final_amt, account_mgr, remarks_comments, pic, bom, rev, margin, opp_status, submitted_date
         `;
-        
-        const result = await req.db.query(query, values);
+
+        const result = await db.query(query, values);
         
         if (result.rows.length === 0) {
             return res.status(404).json({ error: 'Proposal not found' });
@@ -519,7 +515,7 @@ router.get('/schedule', async (req, res) => {
         }
         
         // Use the original database function to get organized schedule data including custom tasks
-        const result = await req.db.query('SELECT * FROM get_weekly_schedule_with_tasks($1, $2)', [week, targetUserId]);
+        const result = await db.query('SELECT * FROM get_weekly_schedule_with_tasks(?, ?)', [week, targetUserId]);
         
         // Transform the result into the expected format
         const scheduleForWeek = {
@@ -576,8 +572,8 @@ router.post('/schedule/add', async (req, res) => {
         }
         
         // Check if the proposal is already scheduled for this exact day (prevent exact duplicates only)
-        const existingResult = await req.db.query(
-            'SELECT id FROM proposal_schedule WHERE proposal_id = $1 AND week_start_date = $2 AND day_index = $3 AND user_id = $4',
+        const existingResult = await db.query(
+            'SELECT id FROM proposal_schedule WHERE proposal_id = ? AND week_start_date = ? AND day_index = ? AND user_id = ?',
             [proposalId, week, dayIndex, userId]
         );
         
@@ -589,9 +585,9 @@ router.post('/schedule/add', async (req, res) => {
         }
         
         // Add new proposal to schedule
-        const result = await req.db.query(
-            `INSERT INTO proposal_schedule (proposal_id, proposal_name, week_start_date, day_index, user_id, scheduled_by, created_at, updated_at) 
-             VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        const result = await db.query(
+            `INSERT INTO proposal_schedule (proposal_id, proposal_name, week_start_date, day_index, user_id, scheduled_by, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
              RETURNING id`,
             [proposalId, proposalName, week, dayIndex, userId, scheduledBy]
         );
@@ -635,8 +631,8 @@ router.put('/schedule/proposals/:proposalId/move', async (req, res) => {
         }
         
         // Get proposal name for the move operation
-        const proposalResult = await req.db.query(
-            'SELECT project_name FROM opps_monitoring WHERE uid = $1',
+        const proposalResult = await db.query(
+            'SELECT project_name FROM opps_monitoring WHERE uid = ?',
             [proposalId]
         );
         
@@ -647,44 +643,44 @@ router.put('/schedule/proposals/:proposalId/move', async (req, res) => {
         const proposalName = proposalResult.rows[0].project_name;
         
         // Get the current completion status from the specific source position
-        const completionResult = await req.db.query(
-            'SELECT is_completed, completed_at, completion_notes FROM schedule_task_completion WHERE task_id = $1 AND task_type = $2 AND week_start_date = $3 AND day_index = $4 AND user_id = $5',
+        const completionResult = await db.query(
+            'SELECT is_completed, completed_at, completion_notes FROM schedule_task_completion WHERE task_id = ? AND task_type = ? AND week_start_date = ? AND day_index = ? AND user_id = ?',
             [proposalId, 'proposal', sourceWeekStartDate, sourceDayIndex, userId]
         );
         const currentCompletion = completionResult.rows[0];
-        
+
         // First, remove the proposal from its specific current schedule position
-        await req.db.query(
-            'DELETE FROM proposal_schedule WHERE proposal_id = $1 AND user_id = $2 AND week_start_date = $3 AND day_index = $4',
+        await db.query(
+            'DELETE FROM proposal_schedule WHERE proposal_id = ? AND user_id = ? AND week_start_date = ? AND day_index = ?',
             [proposalId, userId, sourceWeekStartDate, sourceDayIndex]
         );
-        
+
         // Then add it to the new position
-        const result = await req.db.query(
-            `INSERT INTO proposal_schedule (proposal_id, proposal_name, week_start_date, day_index, user_id, scheduled_by, created_at, updated_at) 
-             VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        const result = await db.query(
+            `INSERT INTO proposal_schedule (proposal_id, proposal_name, week_start_date, day_index, user_id, scheduled_by, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
              ON CONFLICT (user_id, proposal_id, week_start_date, day_index) DO UPDATE SET
              updated_at = CURRENT_TIMESTAMP
              RETURNING id`,
             [proposalId, proposalName, newWeekStartDate, newDayIndex, userId, req.user?.name || 'unknown']
         );
-        
+
         // If the task was completed before moving, restore its completion status
         if (currentCompletion && currentCompletion.is_completed) {
-            await req.db.query(
+            await db.query(
                 `INSERT INTO schedule_task_completion (task_id, task_type, week_start_date, day_index, user_id, is_completed, completed_at, completion_notes, created_at, updated_at)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                  ON CONFLICT (task_id, task_type, week_start_date, day_index, user_id) DO UPDATE SET
-                 is_completed = $6, completed_at = $7, completion_notes = $8, updated_at = CURRENT_TIMESTAMP`,
-                [proposalId, 'proposal', newWeekStartDate, newDayIndex, userId, true, currentCompletion.completed_at, currentCompletion.completion_notes]
+                 is_completed = ?, completed_at = ?, completion_notes = ?, updated_at = CURRENT_TIMESTAMP`,
+                [proposalId, 'proposal', newWeekStartDate, newDayIndex, userId, true, currentCompletion.completed_at, currentCompletion.completion_notes, true, currentCompletion.completed_at, currentCompletion.completion_notes]
             );
             console.log(`[SCHEDULE] Preserved completion status for moved proposal ${proposalId}`);
         }
         
         if (result.rows.length > 0) {
             // Clean up the old completion status from the source position
-            await req.db.query(
-                'DELETE FROM schedule_task_completion WHERE task_id = $1 AND task_type = $2 AND week_start_date = $3 AND day_index = $4 AND user_id = $5',
+            await db.query(
+                'DELETE FROM schedule_task_completion WHERE task_id = ? AND task_type = ? AND week_start_date = ? AND day_index = ? AND user_id = ?',
                 [proposalId, 'proposal', sourceWeekStartDate, sourceDayIndex, userId]
             );
             
@@ -715,8 +711,8 @@ router.post('/schedule/remove', async (req, res) => {
         }
         
         // Use the database function to remove from schedule (now with user_id)
-        const result = await req.db.query(
-            'SELECT remove_proposal_from_schedule($1::uuid, $2::date, $3::uuid) as success',
+        const result = await db.query(
+            'SELECT remove_proposal_from_schedule(?, ?, ?) as success',
             [proposalId, week, userId]
         );
         
@@ -754,8 +750,8 @@ router.post('/schedule/tasks/add', async (req, res) => {
         }
         
         // Use the database function to add the custom task
-        const result = await req.db.query(
-            'SELECT add_custom_task($1, $2, $3, $4, $5, $6, $7, $8, $9) as success',
+        const result = await db.query(
+            'SELECT add_custom_task(?, ?, ?, ?, ?, ?, ?, ?, ?) as success',
             [taskId, userId, weekStartDate, dayIndex, title, description, time, isAllDay || false, comment]
         );
         
@@ -794,8 +790,8 @@ router.put('/schedule/tasks/:taskId', async (req, res) => {
         }
         
         // Use the database function to update the custom task
-        const result = await req.db.query(
-            'SELECT update_custom_task($1, $2, $3, $4, $5, $6, $7) as success',
+        const result = await db.query(
+            'SELECT update_custom_task(?, ?, ?, ?, ?, ?, ?) as success',
             [taskId, userId, title, description, time, isAllDay || false, comment]
         );
         
@@ -826,8 +822,8 @@ router.delete('/schedule/tasks/:taskId', async (req, res) => {
         }
         
         // Use the database function to delete the custom task
-        const result = await req.db.query(
-            'SELECT delete_custom_task($1, $2) as success',
+        const result = await db.query(
+            'SELECT delete_custom_task(?, ?) as success',
             [taskId, userId]
         );
         
@@ -864,8 +860,8 @@ router.put('/schedule/tasks/:taskId/move', async (req, res) => {
         }
         
         // Use the database function to move the custom task
-        const result = await req.db.query(
-            'SELECT move_custom_task($1, $2, $3, $4) as success',
+        const result = await db.query(
+            'SELECT move_custom_task(?, ?, ?, ?) as success',
             [taskId, userId, newWeekStartDate, newDayIndex]
         );
         
@@ -892,7 +888,7 @@ router.get('/schedule/users', async (req, res) => {
         console.log('[SCHEDULE] Fetching users with scheduled items');
         
         // Use the database function to get users with scheduled items
-        const result = await req.db.query('SELECT * FROM get_schedule_users()');
+        const result = await db.query('SELECT * FROM get_schedule_users()');
         
         // Transform the result to match expected format
         const users = result.rows.map(row => ({
@@ -1289,40 +1285,38 @@ async function updateProposalFromExcel(db, proposalUid, excelData, userIdentifie
         // Build update query dynamically based on available data
         const updateFields = [];
         const updateValues = [];
-        let paramCounter = 1;
-        
+
         if (excelData.revisionNumber !== null && excelData.revisionNumber !== undefined) {
-            updateFields.push(`rev = $${paramCounter++}`);
+            updateFields.push(`rev = ?`);
             updateValues.push(excelData.revisionNumber);
         }
-        
+
         if (excelData.margin !== null) {
-            updateFields.push(`margin = $${paramCounter++}`);
+            updateFields.push(`margin = ?`);
             updateValues.push(excelData.margin);
         }
-        
+
         if (excelData.finalAmount !== null) {
-            updateFields.push(`final_amt = $${paramCounter++}`);
+            updateFields.push(`final_amt = ?`);
             updateValues.push(excelData.finalAmount);
         }
-        
+
         if (excelData.submittedDate) {
-            updateFields.push(`submitted_date = $${paramCounter++}`);
+            updateFields.push(`submitted_date = ?`);
             updateValues.push(new Date(excelData.submittedDate));
         }
-        
+
         // Add metadata fields (check if columns exist first)
         try {
             // Check if last_excel_sync column exists
             const columnCheck = await db.query(`
-                SELECT column_name 
-                FROM information_schema.columns 
-                WHERE table_name = 'opps_monitoring' 
-                AND column_name = 'last_excel_sync'
+                SELECT COUNT(*) as column_exists
+                FROM pragma_table_info('opps_monitoring')
+                WHERE name = 'last_excel_sync'
             `);
-            
-            if (columnCheck.rows.length > 0) {
-                updateFields.push(`last_excel_sync = $${paramCounter++}`);
+
+            if (columnCheck.rows[0].column_exists > 0) {
+                updateFields.push(`last_excel_sync = ?`);
                 updateValues.push(new Date());
             } else {
                 console.log('[EXCEL_SYNC] Warning: last_excel_sync column does not exist, skipping metadata update');
@@ -1330,55 +1324,53 @@ async function updateProposalFromExcel(db, proposalUid, excelData, userIdentifie
         } catch (err) {
             console.log('[EXCEL_SYNC] Could not check for last_excel_sync column:', err.message);
         }
-        
+
         try {
             // Check if last_excel_file column exists
             const columnCheck = await db.query(`
-                SELECT column_name 
-                FROM information_schema.columns 
-                WHERE table_name = 'opps_monitoring' 
-                AND column_name = 'last_excel_file'
+                SELECT COUNT(*) as column_exists
+                FROM pragma_table_info('opps_monitoring')
+                WHERE name = 'last_excel_file'
             `);
-            
-            if (columnCheck.rows.length > 0) {
-                updateFields.push(`last_excel_file = $${paramCounter++}`);
+
+            if (columnCheck.rows[0].column_exists > 0) {
+                updateFields.push(`last_excel_file = ?`);
                 updateValues.push(excelData.excelFileName);
             }
         } catch (err) {
             console.log('[EXCEL_SYNC] Could not check for last_excel_file column:', err.message);
         }
-        
+
         try {
             // Check if excel_synced_by column exists
             const columnCheck = await db.query(`
-                SELECT column_name 
-                FROM information_schema.columns 
-                WHERE table_name = 'opps_monitoring' 
-                AND column_name = 'excel_synced_by'
+                SELECT COUNT(*) as column_exists
+                FROM pragma_table_info('opps_monitoring')
+                WHERE name = 'excel_synced_by'
             `);
-            
-            if (columnCheck.rows.length > 0) {
-                updateFields.push(`excel_synced_by = $${paramCounter++}`);
+
+            if (columnCheck.rows[0].column_exists > 0) {
+                updateFields.push(`excel_synced_by = ?`);
                 updateValues.push(userIdentifier); // Store user name/email instead of UUID
             }
         } catch (err) {
             console.log('[EXCEL_SYNC] Could not check for excel_synced_by column:', err.message);
         }
-        
+
         // Add WHERE clause parameter
         updateValues.push(proposalUid);
-        
+
         if (updateFields.length === 0) { // No fields to update
             return {
                 success: false,
                 error: 'No data to update from Excel file'
             };
         }
-        
+
         const updateQuery = `
-            UPDATE opps_monitoring 
+            UPDATE opps_monitoring
             SET ${updateFields.join(', ')}
-            WHERE uid = $${paramCounter}
+            WHERE uid = ?
         `;
         
         console.log(`[EXCEL_SYNC] Executing update query with ${updateFields.length} fields`);
@@ -1422,8 +1414,8 @@ router.post('/schedule/completion/toggle', async (req, res) => {
             return res.status(400).json({ error: 'Missing required parameters' });
         }
         
-        const result = await req.db.query(
-            'SELECT * FROM toggle_task_completion($1, $2, $3, $4, $5, $6)',
+        const result = await db.query(
+            'SELECT * FROM toggle_task_completion(?, ?, ?, ?, ?, ?)',
             [taskId, taskType, weekStartDate, dayIndex, userId, isCompleted ? 'Task marked as completed' : null]
         );
         
@@ -1442,8 +1434,8 @@ router.get('/schedule/completion/:taskId/:taskType/:weekStartDate/:dayIndex/:use
     try {
         const { taskId, taskType, weekStartDate, dayIndex, userId } = req.params;
         
-        const result = await req.db.query(
-            'SELECT is_completed, completed_at, completion_notes FROM schedule_task_completion WHERE task_id = $1 AND task_type = $2 AND week_start_date = $3 AND day_index = $4 AND user_id = $5',
+        const result = await db.query(
+            'SELECT is_completed, completed_at, completion_notes FROM schedule_task_completion WHERE task_id = ? AND task_type = ? AND week_start_date = ? AND day_index = ? AND user_id = ?',
             [taskId, taskType, weekStartDate, parseInt(dayIndex), userId]
         );
         
@@ -1469,8 +1461,8 @@ router.post('/status-history', async (req, res) => {
             return res.status(400).json({ error: 'Missing required parameters' });
         }
         
-        const result = await req.db.query(
-            'SELECT * FROM record_status_change($1, $2, $3, $4)',
+        const result = await db.query(
+            'SELECT * FROM record_status_change(?, ?, ?, ?)',
             [proposalId, newStatus, changedBy, changeReason]
         );
         
@@ -1496,8 +1488,8 @@ router.get('/status-history/:proposalId', async (req, res) => {
         
         const queryDate = date || new Date().toISOString().split('T')[0];
         
-        const result = await req.db.query(
-            'SELECT * FROM get_proposal_status_on_date($1, $2)',
+        const result = await db.query(
+            'SELECT * FROM get_proposal_status_on_date(?, ?)',
             [proposalId, queryDate]
         );
         
@@ -1515,8 +1507,8 @@ router.get('/status-history/:proposalId/history', async (req, res) => {
     try {
         const { proposalId } = req.params;
         
-        const result = await req.db.query(
-            'SELECT * FROM proposal_status_history WHERE proposal_id = $1 ORDER BY status_date DESC, created_at DESC',
+        const result = await db.query(
+            'SELECT * FROM proposal_status_history WHERE proposal_id = ? ORDER BY status_date DESC, created_at DESC',
             [proposalId]
         );
         

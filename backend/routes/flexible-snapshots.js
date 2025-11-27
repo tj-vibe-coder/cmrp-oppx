@@ -4,6 +4,7 @@
  * Features: Custom date snapshots, manual snapshots, date selection
  */
 
+const db = require('../../db_adapter');
 const express = require('express');
 const router = express.Router();
 
@@ -38,8 +39,8 @@ router.get('/snapshots/available-dates/:type', async (req, res) => {
                     total_opportunities,
                     submitted_count,
                     submitted_amount
-                FROM account_manager_snapshots 
-                WHERE snapshot_type = $1 AND account_manager = $2
+                FROM account_manager_snapshots
+                WHERE snapshot_type = ? AND account_manager = ?
                 ORDER BY snapshot_date DESC
                 LIMIT 50
             `;
@@ -47,7 +48,7 @@ router.get('/snapshots/available-dates/:type', async (req, res) => {
         } else {
             // Get global snapshots
             query = `
-                SELECT 
+                SELECT
                     snapshot_date,
                     description,
                     is_manual,
@@ -56,15 +57,15 @@ router.get('/snapshots/available-dates/:type', async (req, res) => {
                     total_opportunities,
                     submitted_count,
                     submitted_amount
-                FROM dashboard_snapshots 
-                WHERE snapshot_type = $1
+                FROM dashboard_snapshots
+                WHERE snapshot_type = ?
                 ORDER BY snapshot_date DESC
                 LIMIT 50
             `;
             values = [type];
         }
 
-        const result = await req.db.query(query, values);
+        const result = await db.query(query, values);
 
         res.json({
             success: true,
@@ -146,18 +147,18 @@ router.get('/snapshots/:type/by-date/:date', async (req, res) => {
                 description,
                 created_by,
                 created_at
-            FROM dashboard_snapshots 
-            WHERE snapshot_type = $1 AND snapshot_date = $2
+            FROM dashboard_snapshots
+            WHERE snapshot_type = ? AND snapshot_date = ?
         `;
-        
-        const result = await req.db.query(query, [type, date]);
+
+        const result = await db.query(query, [type, date]);
         
         if (result.rows.length === 0) {
             // Try to find nearest snapshot
             const nearestQuery = `
-                SELECT * FROM get_nearest_snapshot_date($1, $2, NULL)
+                SELECT * FROM get_nearest_snapshot_date(?, ?, NULL)
             `;
-            const nearestResult = await req.db.query(nearestQuery, [date, type]);
+            const nearestResult = await db.query(nearestQuery, [date, type]);
             
             return res.status(404).json({ 
                 error: 'Snapshot not found for this date',
@@ -211,20 +212,20 @@ router.get('/snapshots/:type/by-date/:date/:accountManager', async (req, res) =>
 
         const query = `
             SELECT *
-            FROM account_manager_snapshots 
-            WHERE snapshot_type = $1 
-            AND snapshot_date = $2
-            AND account_manager = $3
+            FROM account_manager_snapshots
+            WHERE snapshot_type = ?
+            AND snapshot_date = ?
+            AND account_manager = ?
         `;
-        
-        const result = await req.db.query(query, [type, date, accountManager]);
+
+        const result = await db.query(query, [type, date, accountManager]);
         
         if (result.rows.length === 0) {
             // Try to find nearest snapshot for this account manager
             const nearestQuery = `
-                SELECT * FROM get_nearest_snapshot_date($1, $2, $3)
+                SELECT * FROM get_nearest_snapshot_date(?, ?, ?)
             `;
-            const nearestResult = await req.db.query(nearestQuery, [date, type, accountManager]);
+            const nearestResult = await db.query(nearestQuery, [date, type, accountManager]);
             
             return res.status(404).json({ 
                 error: 'Snapshot not found for this date and account manager',
@@ -323,11 +324,11 @@ router.post('/snapshots/manual', async (req, res) => {
                 pending_count, declined_count, revised_count,
                 is_manual, description, created_by
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-                $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-                TRUE, $21, $22
-            ) 
-            ON CONFLICT (snapshot_type, snapshot_date) 
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                TRUE, ?, ?
+            )
+            ON CONFLICT (snapshot_type, snapshot_date)
             DO UPDATE SET
                 total_opportunities = EXCLUDED.total_opportunities,
                 submitted_count = EXCLUDED.submitted_count,
@@ -363,7 +364,7 @@ router.post('/snapshots/manual', async (req, res) => {
             description, created_by
         ];
 
-        const result = await req.db.query(query, values);
+        const result = await db.query(query, values);
 
         res.status(201).json({
             success: true,
@@ -472,8 +473,8 @@ router.post('/snapshots/manual/account-manager', async (req, res) => {
                 description,
                 created_by
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 
-                $15, $16, $17, $18, $19, $20, $21, TRUE, $22, $23
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?, ?, ?, TRUE, ?, ?
             )
             ON CONFLICT (account_manager, snapshot_type, snapshot_date) 
             DO UPDATE SET
@@ -528,8 +529,8 @@ router.post('/snapshots/manual/account-manager', async (req, res) => {
             created_by
         ];
 
-        const result = await req.db.query(query, values);
-        
+        const result = await db.query(query, values);
+
         res.json({
             success: true,
             data: {
@@ -561,11 +562,11 @@ router.post('/snapshots/manual/account-manager', async (req, res) => {
 router.get('/snapshots/summary', async (req, res) => {
     try {
         const summaryQuery = `SELECT * FROM get_snapshot_summary()`;
-        const summaryResult = await req.db.query(summaryQuery);
-        
+        const summaryResult = await db.query(summaryQuery);
+
         // Get account manager snapshot counts
         const accountMgrQuery = `
-            SELECT 
+            SELECT
                 snapshot_type,
                 COUNT(*) as total_snapshots,
                 COUNT(DISTINCT account_manager) as unique_account_managers,
@@ -575,7 +576,7 @@ router.get('/snapshots/summary', async (req, res) => {
             FROM account_manager_snapshots
             GROUP BY snapshot_type
         `;
-        const accountMgrResult = await req.db.query(accountMgrQuery);
+        const accountMgrResult = await db.query(accountMgrQuery);
 
         res.json({
             success: true,

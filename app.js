@@ -417,7 +417,8 @@ async function initializeAppWithToken(token) {
         }
 
         opportunities = await response.json();
-        
+        console.log(`✅ [INDEX-DEBUG] Fetched ${opportunities?.length || 0} opportunities from API`);
+
         // Load user preferences BEFORE table initialization
         console.log('🚀 [INDEX-DEBUG] ===== INITIALIZING APP =====');
         await loadUserPreferences();
@@ -4381,12 +4382,11 @@ let lastColumnVisibilityState = null;
 
 // Function to ensure column visibility is properly initialized
 function ensureColumnVisibilityInitialized() {
-    if (!columnVisibility || Object.keys(columnVisibility).length === 0) {
-        columnVisibility = {};
-        headers.forEach(h => columnVisibility[h] = true);
-        return true; // Indicates we reset the visibility
-    }
-    return false; // No reset needed
+    // FORCE RESET: Always initialize all columns to visible
+    columnVisibility = {};
+    headers.forEach(h => columnVisibility[h] = true);
+    console.log(`[COLUMN-VIS] Initialized ${headers.length} columns to visible`);
+    return true;
 }
 
 // Function to check if column visibility changed and rebuild header if needed

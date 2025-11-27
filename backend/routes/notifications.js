@@ -1,3 +1,4 @@
+const db = require('../../db_adapter');
 const express = require('express');
 const router = express.Router();
 
@@ -24,29 +25,28 @@ function authenticateToken(req, res, next) {
 router.get('/', authenticateToken, async (req, res) => {
     try {
         console.log('[NOTIFICATIONS] GET request received for user:', req.user?.id);
-        
+
         if (!req.db) {
             console.error('[NOTIFICATIONS] req.db is not available');
             return res.status(500).json({ error: 'Database connection not available' });
         }
-        
+
         // Check if user_notifications table exists first
         console.log('[NOTIFICATIONS] Checking if user_notifications table exists...');
         const tableExistsQuery = `
-            SELECT EXISTS (
-                SELECT FROM information_schema.tables 
-                WHERE table_schema = 'public' 
-                AND table_name = 'user_notifications'
-            );
+            SELECT COUNT(*) as table_exists
+            FROM sqlite_master
+            WHERE type = 'table'
+            AND name = 'user_notifications'
         `;
-        
-        const tableCheck = await req.db.query(tableExistsQuery);
-        
-        if (!tableCheck.rows[0].exists) {
+
+        const tableCheck = await db.query(tableExistsQuery);
+
+        if (tableCheck.rows[0].table_exists === 0) {
             console.error('[NOTIFICATIONS] user_notifications table does not exist');
-            return res.status(500).json({ 
-                error: 'Notifications table not found', 
-                details: 'user_notifications table does not exist in database' 
+            return res.status(500).json({
+                error: 'Notifications table not found',
+                details: 'user_notifications table does not exist in database'
             });
         }
         
@@ -71,31 +71,31 @@ router.get('/', authenticateToken, async (req, res) => {
             FROM user_notifications n
             LEFT JOIN opps_monitoring o ON n.opportunity_uid = o.uid
             LEFT JOIN users creator ON n.created_by = creator.id
-            WHERE n.user_id = $1
+            WHERE n.user_id = ?
         `;
-        
+
         const queryParams = [req.user.id];
-        
+
         if (unread_only === 'true') {
             query += ' AND n.is_read = false';
         }
-        
-        query += ' ORDER BY n.created_at DESC LIMIT $' + (queryParams.length + 1) + ' OFFSET $' + (queryParams.length + 2);
+
+        query += ' ORDER BY n.created_at DESC LIMIT ? OFFSET ?';
         queryParams.push(limit, offset);
-        
+
         console.log('[NOTIFICATIONS] Executing query for user:', req.user.id);
-        const result = await req.db.query(query, queryParams);
+        const result = await db.query(query, queryParams);
         console.log('[NOTIFICATIONS] Found', result.rows.length, 'notifications');
         
         // Get total count for pagination
-        let countQuery = 'SELECT COUNT(*) FROM user_notifications WHERE user_id = $1';
+        let countQuery = 'SELECT COUNT(*) FROM user_notifications WHERE user_id = ?';
         const countParams = [req.user.id];
-        
+
         if (unread_only === 'true') {
             countQuery += ' AND is_read = false';
         }
-        
-        const countResult = await req.db.query(countQuery, countParams);
+
+        const countResult = await db.query(countQuery, countParams);
         const totalCount = parseInt(countResult.rows[0].count);
         
         const response = {
@@ -136,26 +136,25 @@ router.get('/unread-count', authenticateToken, async (req, res) => {
         // Check if user_notifications table exists first
         console.log('[NOTIFICATIONS] Checking if user_notifications table exists...');
         const tableExistsQuery = `
-            SELECT EXISTS (
-                SELECT FROM information_schema.tables 
-                WHERE table_schema = 'public' 
-                AND table_name = 'user_notifications'
-            );
+            SELECT COUNT(*) as table_exists
+            FROM sqlite_master
+            WHERE type = 'table'
+            AND name = 'user_notifications'
         `;
-        
-        const tableCheck = await req.db.query(tableExistsQuery);
-        
-        if (!tableCheck.rows[0].exists) {
+
+        const tableCheck = await db.query(tableExistsQuery);
+
+        if (tableCheck.rows[0].table_exists === 0) {
             console.error('[NOTIFICATIONS] user_notifications table does not exist');
-            return res.status(500).json({ 
-                error: 'Notifications table not found', 
-                details: 'user_notifications table does not exist in database' 
+            return res.status(500).json({
+                error: 'Notifications table not found',
+                details: 'user_notifications table does not exist in database'
             });
         }
-        
-        const query = 'SELECT COUNT(*) FROM user_notifications WHERE user_id = $1 AND is_read = false';
+
+        const query = 'SELECT COUNT(*) FROM user_notifications WHERE user_id = ? AND is_read = false';
         console.log('[NOTIFICATIONS] Executing query with user ID:', req.user.id);
-        const result = await req.db.query(query, [req.user.id]);
+        const result = await db.query(query, [req.user.id]);
         
         const count = parseInt(result.rows[0].count);
         console.log('[NOTIFICATIONS] Unread count for user:', count);
@@ -185,13 +184,13 @@ router.put('/:id/read', authenticateToken, async (req, res) => {
         }
         
         const query = `
-            UPDATE user_notifications 
-            SET is_read = true 
-            WHERE id = $1 AND user_id = $2
+            UPDATE user_notifications
+            SET is_read = true
+            WHERE id = ? AND user_id = ?
             RETURNING *
         `;
-        
-        const result = await req.db.query(query, [id, req.user.id]);
+
+        const result = await db.query(query, [id, req.user.id]);
         
         if (result.rows.length === 0) {
             console.log('[NOTIFICATIONS] Notification not found:', id);
@@ -217,12 +216,12 @@ router.put('/mark-all-read', authenticateToken, async (req, res) => {
         }
         
         const query = `
-            UPDATE user_notifications 
-            SET is_read = true 
-            WHERE user_id = $1 AND is_read = false
+            UPDATE user_notifications
+            SET is_read = true
+            WHERE user_id = ? AND is_read = false
         `;
-        
-        const result = await req.db.query(query, [req.user.id]);
+
+        const result = await db.query(query, [req.user.id]);
         
         console.log('[NOTIFICATIONS] Marked', result.rowCount, 'notifications as read');
         res.json({ success: true, updated_count: result.rowCount });
@@ -237,8 +236,8 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     try {
         const { id } = req.params;
         
-        const query = 'DELETE FROM user_notifications WHERE id = $1 AND user_id = $2 RETURNING *';
-        const result = await req.db.query(query, [id, req.user.id]);
+        const query = 'DELETE FROM user_notifications WHERE id = ? AND user_id = ? RETURNING *';
+        const result = await db.query(query, [id, req.user.id]);
         
         if (result.rows.length === 0) {
             return res.status(404).json({ error: 'Notification not found' });
@@ -263,16 +262,16 @@ router.post('/', authenticateToken, async (req, res) => {
         
         const query = `
             INSERT INTO user_notifications (user_id, opportunity_uid, type, title, message, data, created_by)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             RETURNING *
         `;
-        
-        const result = await req.db.query(query, [
-            user_id, 
-            opportunity_uid, 
-            type, 
-            title, 
-            message, 
+
+        const result = await db.query(query, [
+            user_id,
+            opportunity_uid,
+            type,
+            title,
+            message,
             data ? JSON.stringify(data) : null,
             req.user.id
         ]);
@@ -294,16 +293,16 @@ class NotificationService {
         try {
             const query = `
                 INSERT INTO user_notifications (user_id, opportunity_uid, type, title, message, data, created_by)
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 RETURNING *
             `;
-            
+
             const result = await this.db.query(query, [
-                user_id, 
-                opportunity_uid, 
-                type, 
-                title, 
-                message, 
+                user_id,
+                opportunity_uid,
+                type,
+                title,
+                message,
                 data ? JSON.stringify(data) : null,
                 created_by
             ]);
