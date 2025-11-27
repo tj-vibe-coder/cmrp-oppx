@@ -2007,7 +2007,6 @@ app.get('/api/dashboard', async (req, res) => {
 // API endpoint for Forecast dashboard data (with status filter)
 app.get('/api/forecast-dashboard', async (req, res) => {
   const requestedStatus = req.query.status;
-  console.log(`[API /api/forecast-dashboard] Request received. Status filter: ${requestedStatus}`);
   try {
     // Use mock data in development mode
     if (USE_MOCK_DATA) {
@@ -2095,8 +2094,6 @@ app.get('/api/forecast-dashboard', async (req, res) => {
       });
     }
     
-    console.log('[API /api/forecast-dashboard] Starting database query...');
-    
     // *** MODIFIED: Added uid, account_mgr, pic, client, and solutions to the SELECT statement ***
     let sql = `
         SELECT uid, forecast_date, final_amt, opp_status, project_name, account_mgr, pic, client, solutions
@@ -2110,11 +2107,8 @@ app.get('/api/forecast-dashboard', async (req, res) => {
         sql += ` AND opp_status = ?`;
         queryParams.push(requestedStatus);
     }
-    console.log(`[API /api/forecast-dashboard] Executing SQL: ${sql}`);
-    console.log(`[API /api/forecast-dashboard] Parameters:`, queryParams);
     const result = await db.query(sql, queryParams);
     const opportunities = result.rows;
-    console.log(`[API /api/forecast-dashboard] Database query completed. Found ${opportunities.length} opportunities`);
 
     // --- Find min/max forecast date ---
     let minDate = null, maxDate = null;
@@ -2242,18 +2236,14 @@ app.get('/api/forecast-dashboard', async (req, res) => {
         }
     });
 
-    const response = {
+    return res.json({
         totalForecastCount,
         totalForecastAmount,
         nextMonthForecastCount,
         nextMonthForecastAmount,
         forecastMonthlySummary,
         projectDetails
-    };
-
-    console.log(`[API /api/forecast-dashboard] Sending response: totalCount=${totalForecastCount}, totalAmount=${totalForecastAmount}, projectDetails=${projectDetails.length} items, monthlySummary=${forecastMonthlySummary.length} months`);
-
-    return res.json(response);
+    });
   } catch (error) {
     console.error('[API /api/forecast-dashboard] Error generating forecast dashboard data:', error);
     console.error('[API /api/forecast-dashboard] Error stack:', error.stack);
