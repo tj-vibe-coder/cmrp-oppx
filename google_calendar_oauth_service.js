@@ -1,17 +1,6 @@
 const { google } = require('googleapis');
-const { Pool } = require('pg');
+const db = require('./db_adapter');
 require('dotenv').config();
-
-// Database connection using existing configuration
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgresql://cmrp_user:cmrp0601@100.118.59.44:5432/cmrp_opps_db',
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
-});
-
-// Set search path for all new connections
-pool.on('connect', (client) => {
-  client.query('SET search_path TO public');
-});
 
 // OAuth Configuration
 const GOOGLE_CALENDAR_OAUTH_CONFIG = {
@@ -168,17 +157,15 @@ class GoogleCalendarOAuthService {
   }
 
   async storeUserTokens(userId, username, tokens, googleEmail, calendarId) {
-    const client = await pool.connect();
-    
     try {
-      const expiresAt = tokens.expiry_date ? new Date(tokens.expiry_date) : null;
+      const expiresAt = tokens.expiry_date ? new Date(tokens.expiry_date).toISOString() : null;
       const scopes = GOOGLE_CALENDAR_OAUTH_CONFIG.scopes.join(' ');
 
-      await client.query(`
+      await db.query(`
         INSERT INTO user_calendar_tokens (
-          user_id, username, google_email, access_token, refresh_token, 
+          user_id, username, google_email, access_token, refresh_token,
           token_expires_at, scope, calendar_id, sync_enabled
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (user_id) DO UPDATE SET
           google_email = EXCLUDED.google_email,
           access_token = EXCLUDED.access_token,
@@ -187,8 +174,8 @@ class GoogleCalendarOAuthService {
           scope = EXCLUDED.scope,
           calendar_id = EXCLUDED.calendar_id,
           sync_enabled = EXCLUDED.sync_enabled,
-          updated_at = CURRENT_TIMESTAMP
-      `, [userId, username, googleEmail, tokens.access_token, tokens.refresh_token, 
+          updated_at = datetime('now')
+      `, [userId, username, googleEmail, tokens.access_token, tokens.refresh_token,
           expiresAt, scopes, calendarId, true]);
 
       console.log(`✅ Stored OAuth tokens for user: ${username}`);
@@ -196,17 +183,13 @@ class GoogleCalendarOAuthService {
     } catch (error) {
       console.error('❌ Failed to store user tokens:', error.message);
       throw error;
-    } finally {
-      client.release();
     }
   }
 
   async getUserTokens(userId) {
-    const client = await pool.connect();
-    
     try {
-      const result = await client.query(
-        'SELECT * FROM user_calendar_tokens WHERE user_id = $1 AND sync_enabled = TRUE',
+      const result = await db.query(
+        'SELECT * FROM user_calendar_tokens WHERE user_id = ? AND sync_enabled = TRUE',
         [userId]
       );
 
@@ -219,8 +202,6 @@ class GoogleCalendarOAuthService {
     } catch (error) {
       console.error('❌ Failed to get user tokens:', error.message);
       throw error;
-    } finally {
-      client.release();
     }
   }
 
@@ -239,23 +220,17 @@ class GoogleCalendarOAuthService {
 
       // Refresh the token
       const { credentials } = await this.oauth2Client.refreshAccessToken();
-      
+
       // Update stored tokens
-      const client = await pool.connect();
-      try {
-        const expiresAt = credentials.expiry_date ? new Date(credentials.expiry_date) : null;
-        
-        await client.query(
-          'UPDATE user_calendar_tokens SET access_token = $1, token_expires_at = $2, updated_at = CURRENT_TIMESTAMP WHERE user_id = $3',
-          [credentials.access_token, expiresAt, userId]
-        );
+      const expiresAt = credentials.expiry_date ? new Date(credentials.expiry_date).toISOString() : null;
 
-        console.log(`✅ Refreshed access token for user: ${userTokens.username}`);
-        return credentials;
+      await db.query(
+        'UPDATE user_calendar_tokens SET access_token = ?, token_expires_at = ?, updated_at = datetime(\'now\') WHERE user_id = ?',
+        [credentials.access_token, expiresAt, userId]
+      );
 
-      } finally {
-        client.release();
-      }
+      console.log(`✅ Refreshed access token for user: ${userTokens.username}`);
+      return credentials;
 
     } catch (error) {
       console.error('❌ Failed to refresh access token:', error.message);
@@ -363,8 +338,6 @@ class GoogleCalendarOAuthService {
   }
 
   async storeCalendarEvent(userId, calendarId, googleEvent) {
-    const client = await pool.connect();
-    
     try {
       // Parse event times
       const startDateTime = googleEvent.start?.dateTime || googleEvent.start?.date;
@@ -374,22 +347,22 @@ class GoogleCalendarOAuthService {
       // Convert date-only events to proper timestamps
       let startTimestamp, endTimestamp;
       if (isAllDay) {
-        startTimestamp = new Date(googleEvent.start.date + 'T00:00:00');
-        endTimestamp = new Date(googleEvent.end.date + 'T23:59:59');
+        startTimestamp = new Date(googleEvent.start.date + 'T00:00:00').toISOString();
+        endTimestamp = new Date(googleEvent.end.date + 'T23:59:59').toISOString();
       } else {
-        startTimestamp = new Date(startDateTime);
-        endTimestamp = new Date(endDateTime);
+        startTimestamp = new Date(startDateTime).toISOString();
+        endTimestamp = new Date(endDateTime).toISOString();
       }
 
       // Prepare attendees JSON
       const attendees = googleEvent.attendees ? JSON.stringify(googleEvent.attendees) : null;
 
-      await client.query(`
+      await db.query(`
         INSERT INTO calendar_events (
           user_id, google_event_id, calendar_id, summary, description,
           start_datetime, end_datetime, is_all_day, location, attendees,
           status, visibility, event_created_at, event_updated_at, is_deleted
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (google_event_id, calendar_id) DO UPDATE SET
           summary = EXCLUDED.summary,
           description = EXCLUDED.description,
@@ -401,8 +374,8 @@ class GoogleCalendarOAuthService {
           status = EXCLUDED.status,
           visibility = EXCLUDED.visibility,
           event_updated_at = EXCLUDED.event_updated_at,
-          synced_at = CURRENT_TIMESTAMP,
-          is_deleted = FALSE
+          synced_at = datetime('now'),
+          is_deleted = 0
       `, [
         userId,
         googleEvent.id,
@@ -411,36 +384,30 @@ class GoogleCalendarOAuthService {
         googleEvent.description || null,
         startTimestamp,
         endTimestamp,
-        isAllDay,
+        isAllDay ? 1 : 0,
         googleEvent.location || null,
         attendees,
         googleEvent.status || 'confirmed',
         googleEvent.visibility || 'default',
-        googleEvent.created ? new Date(googleEvent.created) : new Date(),
-        googleEvent.updated ? new Date(googleEvent.updated) : new Date(),
-        false
+        googleEvent.created ? new Date(googleEvent.created).toISOString() : new Date().toISOString(),
+        googleEvent.updated ? new Date(googleEvent.updated).toISOString() : new Date().toISOString(),
+        0
       ]);
 
     } catch (error) {
       console.error('❌ Failed to store calendar event:', error.message);
       throw error;
-    } finally {
-      client.release();
     }
   }
 
   async updateLastSyncTime(userId) {
-    const client = await pool.connect();
-    
     try {
-      await client.query(
-        'UPDATE user_calendar_tokens SET last_sync_at = CURRENT_TIMESTAMP WHERE user_id = $1',
+      await db.query(
+        'UPDATE user_calendar_tokens SET last_sync_at = datetime(\'now\') WHERE user_id = ?',
         [userId]
       );
     } catch (error) {
       console.error('❌ Failed to update last sync time:', error.message);
-    } finally {
-      client.release();
     }
   }
 
@@ -473,26 +440,24 @@ class GoogleCalendarOAuthService {
   }
 
   async disconnectUserCalendar(userId) {
-    const client = await pool.connect();
-    
     try {
       console.log(`🔌 Disconnecting calendar for user ID: ${userId}`);
 
       // Soft delete: disable sync and clear tokens
-      await client.query(`
-        UPDATE user_calendar_tokens 
-        SET sync_enabled = FALSE,
+      await db.query(`
+        UPDATE user_calendar_tokens
+        SET sync_enabled = 0,
             access_token = NULL,
-            updated_at = CURRENT_TIMESTAMP
-        WHERE user_id = $1
+            updated_at = datetime('now')
+        WHERE user_id = ?
       `, [userId]);
 
       // Mark calendar events as deleted
-      await client.query(`
-        UPDATE calendar_events 
-        SET is_deleted = TRUE,
-            synced_at = CURRENT_TIMESTAMP
-        WHERE user_id = $1
+      await db.query(`
+        UPDATE calendar_events
+        SET is_deleted = 1,
+            synced_at = datetime('now')
+        WHERE user_id = ?
       `, [userId]);
 
       console.log('✅ Successfully disconnected user calendar');
@@ -501,22 +466,36 @@ class GoogleCalendarOAuthService {
     } catch (error) {
       console.error('❌ Failed to disconnect calendar:', error.message);
       throw error;
-    } finally {
-      client.release();
     }
   }
 
   async getWeeklyScheduleWithCalendar(weekStartDate, userId = null) {
-    const client = await pool.connect();
-    
     try {
-      const result = await client.query(
-        'SELECT * FROM get_weekly_schedule_with_calendar($1, $2)',
-        [weekStartDate, userId]
-      );
+      // Get calendar events for the week
+      const weekEnd = new Date(weekStartDate);
+      weekEnd.setDate(weekEnd.getDate() + 7);
+
+      const calendarQuery = `
+        SELECT
+          ce.*,
+          CAST((julianday(ce.start_datetime) - julianday(?)) AS INTEGER) as day_index
+        FROM calendar_events ce
+        WHERE ce.user_id = ?
+          AND ce.is_deleted = 0
+          AND ce.start_datetime >= ?
+          AND ce.start_datetime < ?
+        ORDER BY ce.start_datetime
+      `;
+
+      const calendarEvents = await db.query(calendarQuery, [
+        weekStartDate,
+        userId,
+        weekStartDate,
+        weekEnd.toISOString()
+      ]);
 
       const scheduleData = {};
-      
+
       // Initialize all days
       for (let i = 0; i < 7; i++) {
         scheduleData[i] = {
@@ -525,12 +504,12 @@ class GoogleCalendarOAuthService {
         };
       }
 
-      // Populate with data from database
-      result.rows.forEach(row => {
-        scheduleData[row.day_index] = {
-          proposals: row.proposals || [],
-          calendarEvents: row.calendar_events || []
-        };
+      // Populate calendar events by day
+      calendarEvents.rows.forEach(event => {
+        const dayIndex = event.day_index;
+        if (dayIndex >= 0 && dayIndex < 7) {
+          scheduleData[dayIndex].calendarEvents.push(event);
+        }
       });
 
       return {
@@ -542,32 +521,27 @@ class GoogleCalendarOAuthService {
     } catch (error) {
       console.error('❌ Failed to get weekly schedule with calendar:', error.message);
       throw error;
-    } finally {
-      client.release();
     }
   }
 
   async cleanupOldEvents(daysToKeep = 30) {
-    const client = await pool.connect();
-    
     try {
       const cutoffDate = new Date();
       cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
+      const cutoffISO = cutoffDate.toISOString();
 
-      const result = await client.query(`
-        DELETE FROM calendar_events 
-        WHERE end_datetime < $1 
-        AND synced_at < $1
-      `, [cutoffDate]);
+      const result = await db.query(`
+        DELETE FROM calendar_events
+        WHERE end_datetime < ?
+        AND synced_at < ?
+      `, [cutoffISO, cutoffISO]);
 
-      console.log(`🧹 Cleaned up ${result.rowCount} old calendar events`);
-      return result.rowCount;
+      console.log(`🧹 Cleaned up ${result.rowCount || result.changes} old calendar events`);
+      return result.rowCount || result.changes;
 
     } catch (error) {
       console.error('❌ Failed to cleanup old events:', error.message);
       throw error;
-    } finally {
-      client.release();
     }
   }
 
@@ -575,17 +549,10 @@ class GoogleCalendarOAuthService {
     try {
       console.log('🔄 Starting bulk sync for all connected users...');
 
-      const client = await pool.connect();
-      let users;
-      
-      try {
-        const result = await client.query(
-          'SELECT user_id, username FROM user_calendar_tokens WHERE sync_enabled = TRUE'
-        );
-        users = result.rows;
-      } finally {
-        client.release();
-      }
+      const result = await db.query(
+        'SELECT user_id, username FROM user_calendar_tokens WHERE sync_enabled = 1'
+      );
+      const users = result.rows;
 
       console.log(`👥 Found ${users.length} users with calendar sync enabled`);
 
