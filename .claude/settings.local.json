@@ -21,7 +21,8 @@
       "Bash(npm start)",
       "Bash(tasklist:*)",
       "Bash(tskill:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(cat:*)"
     ],
     "deny": [],
     "ask": []

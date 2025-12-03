@@ -96,11 +96,9 @@ class GoogleCalendarOAuthService {
       
       let response;
       try {
-        response = await this.oauth2Client.getAccessToken({
-          code: authorizationCode
-        });
+        response = await this.oauth2Client.getToken(authorizationCode);
       } catch (oauthError) {
-        console.error('❌ OAuth getAccessToken error:', oauthError.message);
+        console.error('❌ OAuth getToken error:', oauthError.message);
         console.error('❌ Error details:', oauthError.response?.data || 'No additional details');
         return {
           success: false,
@@ -176,7 +174,7 @@ class GoogleCalendarOAuthService {
           sync_enabled = EXCLUDED.sync_enabled,
           updated_at = datetime('now')
       `, [userId, username, googleEmail, tokens.access_token, tokens.refresh_token,
-          expiresAt, scopes, calendarId, true]);
+          expiresAt, scopes, calendarId, 1]);
 
       console.log(`✅ Stored OAuth tokens for user: ${username}`);
 
@@ -189,7 +187,7 @@ class GoogleCalendarOAuthService {
   async getUserTokens(userId) {
     try {
       const result = await db.query(
-        'SELECT * FROM user_calendar_tokens WHERE user_id = ? AND sync_enabled = TRUE',
+        'SELECT * FROM user_calendar_tokens WHERE user_id = ? AND sync_enabled = 1',
         [userId]
       );
 

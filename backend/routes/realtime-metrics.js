@@ -26,7 +26,8 @@ router.get('/realtime/account-managers', async (req, res) => {
             FROM opps_monitoring om
             INNER JOIN role_definitions rd ON rd.code = om.account_mgr 
             WHERE rd.role_type = 'account_manager' 
-            AND rd.is_active = TRUE
+            AND rd.is_active = 1
+            AND (om.is_deleted = 0 OR om.is_deleted IS NULL)
             AND om.account_mgr IS NOT NULL 
             AND om.account_mgr != ''
             GROUP BY om.account_mgr
@@ -75,6 +76,7 @@ router.get('/realtime/account-managers/:name/metrics', async (req, res) => {
             SELECT COUNT(*) as count
             FROM opps_monitoring
             WHERE account_mgr = ?
+            AND (is_deleted = 0 OR is_deleted IS NULL)
             LIMIT 1
         `;
         const validationResult = await db.query(validationQuery, [name]);
@@ -123,6 +125,7 @@ router.get('/realtime/account-managers/:name/metrics', async (req, res) => {
                 
             FROM opps_monitoring
             WHERE account_mgr = ?
+            AND (is_deleted = 0 OR is_deleted IS NULL)
             GROUP BY account_mgr
         `;
 
@@ -178,6 +181,7 @@ router.get('/realtime/account-managers/:name/metrics', async (req, res) => {
                     FROM opps_monitoring
                     WHERE account_mgr = ?
                     AND date_received <= ?
+                    AND (is_deleted = 0 OR is_deleted IS NULL)
                     GROUP BY account_mgr
                 `;
 
@@ -363,6 +367,7 @@ router.post('/realtime/snapshots/auto-create', async (req, res) => {
                 COALESCE(SUM(CASE WHEN rev IS NOT NULL AND rev > 0 THEN rev ELSE 0 END), 0) as revised_count
             FROM opps_monitoring 
             WHERE account_mgr IS NOT NULL AND account_mgr != ''
+            AND (is_deleted = 0 OR is_deleted IS NULL)
             GROUP BY account_mgr
             ORDER BY account_mgr
         `;
@@ -496,11 +501,12 @@ router.get('/realtime/metrics/global', async (req, res) => {
                 COUNT(CASE WHEN decision = 'Decline' THEN 1 END) as declined_count,
                 COUNT(CASE WHEN opp_status = 'Revised' THEN 1 END) as revised_count,
                 COUNT(DISTINCT account_mgr) as unique_account_managers,
-                MAX(GREATEST(
-                    COALESCE(created_at, '1970-01-01'::timestamp), 
-                    COALESCE(updated_at, '1970-01-01'::timestamp)
+                MAX(MAX(
+                    COALESCE(created_at, '1970-01-01'), 
+                    COALESCE(updated_at, '1970-01-01')
                 )) as last_global_activity
             FROM opps_monitoring
+            WHERE (is_deleted = 0 OR is_deleted IS NULL)
         `;
 
         const result = await db.query(query);
