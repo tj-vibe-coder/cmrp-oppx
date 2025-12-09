@@ -4021,81 +4021,80 @@ process.on('SIGTERM', () => {
 app.delete('/api/opportunities/:uid', authenticateToken, async (req, res) => {
   const { uid } = req.params;
   console.log(`[DELETE /api/opportunities/${uid}] === START ===`);
-  
+
   if (!uid) {
     return res.status(400).json({ error: 'UID is required.' });
   }
 
-  const client = await pool.connect();
   try {
-    await client.query('BEGIN');
-
-    // 1. Check if opportunity exists
-    const checkResult = await client.query('SELECT uid FROM opps_monitoring WHERE uid = $1', [uid]);
-    if (checkResult.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ error: 'Opportunity not found.' });
-    }
-
-    // 2. Delete opportunity revisions first (due to foreign key constraint)
-    await client.query('DELETE FROM opportunity_revisions WHERE opportunity_uid = $1', [uid]);
-    
-    // 3. Delete forecast revisions if they exist
-    await client.query('DELETE FROM forecast_revisions WHERE opportunity_uid = $1', [uid]);
-    
-    // 4. Delete drive folder audit records if they exist
-    await client.query('DELETE FROM drive_folder_audit WHERE opportunity_uid = $1', [uid]);
-    
-    // 5. Delete Google Drive folder if it exists
-    try {
-      const folderResult = await client.query(
-        'SELECT google_drive_folder_id, google_drive_folder_name FROM opps_monitoring WHERE uid = $1',
-        [uid]
-      );
-      
-      if (folderResult.rows.length > 0 && folderResult.rows[0].google_drive_folder_id) {
-        const folderId = folderResult.rows[0].google_drive_folder_id;
-        const folderName = folderResult.rows[0].google_drive_folder_name;
-        
-        console.log(`[DELETE] Deleting Google Drive folder: ${folderName} (ID: ${folderId})`);
-        
-        const GoogleDriveService = require('./google_drive_service.js');
-        const driveService = new GoogleDriveService();
-        
-        const initialized = await driveService.initialize();
-        if (initialized) {
-          try {
-            await driveService.drive.files.delete({ fileId: folderId });
-            console.log(`✅ Successfully deleted Google Drive folder: ${folderName}`);
-          } catch (driveError) {
-            console.warn(`⚠️ Could not delete Google Drive folder: ${driveError.message}`);
-            // Don't fail the whole delete operation if Drive deletion fails
-          }
-        } else {
-          console.warn('⚠️ Could not initialize Google Drive service for folder deletion');
-        }
+    await db.transaction(async (query) => {
+      // 1. Check if opportunity exists
+      const checkResult = await query('SELECT uid FROM opps_monitoring WHERE uid = ?', [uid]);
+      if (checkResult.rows.length === 0) {
+        throw new Error('Opportunity not found.');
       }
-    } catch (folderError) {
-      console.warn(`⚠️ Error during folder deletion: ${folderError.message}`);
-      // Don't fail the whole delete operation if Drive deletion fails
-    }
-    
-    // 6. Delete the opportunity
-    await client.query('DELETE FROM opps_monitoring WHERE uid = $1', [uid]);
 
-    await client.query('COMMIT');
+      // 2. Delete opportunity revisions first (due to foreign key constraint)
+      await query('DELETE FROM opportunity_revisions WHERE opportunity_uid = ?', [uid]);
+
+      // 3. Delete forecast revisions if they exist
+      await query('DELETE FROM forecast_revisions WHERE opportunity_uid = ?', [uid]);
+
+      // 4. Delete drive folder audit records if they exist
+      await query('DELETE FROM drive_folder_audit WHERE opportunity_uid = ?', [uid]);
+
+      // 5. Delete Google Drive folder if it exists
+      try {
+        const folderResult = await query(
+          'SELECT google_drive_folder_id, google_drive_folder_name FROM opps_monitoring WHERE uid = ?',
+          [uid]
+        );
+
+        if (folderResult.rows.length > 0 && folderResult.rows[0].google_drive_folder_id) {
+          const folderId = folderResult.rows[0].google_drive_folder_id;
+          const folderName = folderResult.rows[0].google_drive_folder_name;
+
+          console.log(`[DELETE] Deleting Google Drive folder: ${folderName} (ID: ${folderId})`);
+
+          const GoogleDriveService = require('./google_drive_service.js');
+          const driveService = new GoogleDriveService();
+
+          const initialized = await driveService.initialize();
+          if (initialized) {
+            try {
+              await driveService.drive.files.delete({ fileId: folderId });
+              console.log(`✅ Successfully deleted Google Drive folder: ${folderName}`);
+            } catch (driveError) {
+              console.warn(`⚠️ Could not delete Google Drive folder: ${driveError.message}`);
+              // Don't fail the whole delete operation if Drive deletion fails
+            }
+          } else {
+            console.warn('⚠️ Could not initialize Google Drive service for folder deletion');
+          }
+        }
+      } catch (folderError) {
+        console.warn(`⚠️ Error during folder deletion: ${folderError.message}`);
+        // Don't fail the whole delete operation if Drive deletion fails
+      }
+
+      // 6. Delete the opportunity
+      await query('DELETE FROM opps_monitoring WHERE uid = ?', [uid]);
+    });
+
     res.json({ success: true, message: 'Opportunity deleted successfully' });
 
   } catch (error) {
-    await client.query('ROLLBACK');
     console.error(`[DELETE /api/opportunities/${uid}] Error:`, error);
-    res.status(500).json({ 
-      error: 'Failed to delete opportunity',
-      message: error.message,
-      details: error.stack
-    });
-  } finally {
-    client.release();
+
+    if (error.message === 'Opportunity not found.') {
+      res.status(404).json({ error: 'Opportunity not found.' });
+    } else {
+      res.status(500).json({
+        error: 'Failed to delete opportunity',
+        message: error.message,
+        details: error.stack
+      });
+    }
   }
 });
 

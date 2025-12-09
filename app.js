@@ -4602,8 +4602,19 @@ function populateTableBody(data) {
                         headers: { 'Authorization': `Bearer ${token}` }
                     });
                     if (!response.ok) {
-                        const err = await response.json();
-                        throw new Error(err.error || response.statusText);
+                        let errorMessage = response.statusText;
+                        const contentType = response.headers.get('content-type');
+                        if (contentType && contentType.includes('application/json')) {
+                            try {
+                                const err = await response.json();
+                                errorMessage = err.error || err.message || response.statusText;
+                            } catch (parseError) {
+                                errorMessage = `Server error (${response.status}): ${response.statusText}`;
+                            }
+                        } else {
+                            errorMessage = `Server error (${response.status}): ${response.statusText}`;
+                        }
+                        throw new Error(errorMessage);
                     }
                     // Remove from local data and re-render
                     const idx = opportunities.findIndex(opp => opp.uid === row.uid);
