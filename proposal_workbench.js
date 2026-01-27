@@ -3528,10 +3528,31 @@ async function handleSyncFromDrive(event) {
             method: 'POST'
         });
         
-        const result = await response.json();
+        // Check if response exists and handle network errors
+        if (!response) {
+            throw new Error('Network error: No response from server. Please check your connection and try again.');
+        }
+        
+        // Handle connection errors (ECONNRESET, etc.)
+        if (!response.ok && response.status === 0) {
+            throw new Error('Connection error: Unable to reach the server. Please check your network connection and ensure the server is running.');
+        }
+        
+        // Try to parse JSON, but handle cases where response might not be valid JSON
+        let result;
+        try {
+            const text = await response.text();
+            if (!text) {
+                throw new Error('Empty response from server');
+            }
+            result = JSON.parse(text);
+        } catch (parseError) {
+            console.error('[SYNC] Failed to parse response:', parseError);
+            throw new Error(`Server error: Invalid response format. ${response.status ? `Status: ${response.status}` : 'Connection may have been reset.'}`);
+        }
         
         if (!response.ok) {
-            throw new Error(result.error || 'Sync failed');
+            throw new Error(result.error || `Sync failed: ${response.status} ${response.statusText}`);
         }
         
         if (result.success) {
@@ -3551,7 +3572,12 @@ async function handleSyncFromDrive(event) {
         
     } catch (error) {
         console.error('[SYNC] Sync failed:', error);
-        showSyncErrorMessage(error.message);
+        // Provide more user-friendly error messages
+        let errorMessage = error.message;
+        if (error.message.includes('ECONNRESET') || error.message.includes('ECONNREFUSED') || error.message.includes('fetch')) {
+            errorMessage = 'Connection error: Unable to sync from Google Drive. Please check your network connection and ensure the server is running, then try again.';
+        }
+        showSyncErrorMessage(errorMessage);
     } finally {
         // Restore button state
         syncBtn.disabled = false;

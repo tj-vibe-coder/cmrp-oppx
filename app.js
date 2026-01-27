@@ -1674,19 +1674,24 @@ function createGoogleDriveFolderField(rowData) {
             }
             
             // Extract folder ID from URL if a full URL was pasted
-            if (folderId.includes('drive.google.com/drive/folders/')) {
+            // Handle both formats: drive.google.com/drive/folders/ and drive.google.com/drive/u/0/folders/
+            const originalFolderId = folderId;
+            if (folderId.includes('drive.google.com') && folderId.includes('/folders/')) {
                 const urlParts = folderId.split('/folders/');
                 if (urlParts.length > 1) {
-                    folderId = urlParts[1].split('?')[0]; // Remove query parameters
+                    folderId = urlParts[1].split('?')[0].split('&')[0]; // Remove query parameters and fragments
+                    folderId = folderId.trim(); // Remove any whitespace
+                    console.log('[LINK-FOLDER] Extracted folder ID from URL:', folderId);
                 }
             }
             
             // Validate folder ID format (Google Drive folder IDs are typically 25-50 characters)
             if (folderId.length < 10 || folderId.length > 100) {
-                alert('Invalid folder ID format. Please check the ID and try again.');
+                alert(`Invalid folder ID format. Length: ${folderId.length} characters.\n\nPlease check the ID and try again.\n\nOriginal input: ${originalFolderId}`);
                 return;
             }
             
+            console.log('[LINK-FOLDER] Linking folder with ID:', folderId, 'to opportunity:', rowData.uid);
             // Linking folder
             linkExistingDriveFolder(rowData.uid, folderId);
         });
@@ -1749,6 +1754,12 @@ async function createDriveFolder(opportunityUid) {
 async function linkExistingDriveFolder(opportunityUid, folderId, skipReload = false) {
     try {
         // Linking folder to opportunity
+        console.log('[LINK-FOLDER] Starting link process:', {
+            opportunityUid,
+            folderId,
+            folderIdLength: folderId?.length,
+            folderIdType: typeof folderId
+        });
         
         const btn = document.querySelector(`[data-uid="${opportunityUid}"].drive-folder-link-btn`);
         if (btn) {
@@ -1756,7 +1767,14 @@ async function linkExistingDriveFolder(opportunityUid, folderId, skipReload = fa
             btn.innerHTML = '<span class="material-icons">hourglass_empty</span> Linking...';
         }
         
-        const requestBody = { folderId };
+        // Ensure folderId is a clean string
+        const cleanFolderId = String(folderId).trim();
+        if (!cleanFolderId || cleanFolderId.length < 10) {
+            throw new Error(`Invalid folder ID: "${cleanFolderId}" (length: ${cleanFolderId.length})`);
+        }
+        
+        const requestBody = { folderId: cleanFolderId };
+        console.log('[LINK-FOLDER] Sending request with folderId:', cleanFolderId);
         // Sending request
         
         const response = await fetch(getApiUrl(`/api/opportunities/${opportunityUid}/drive-folder`), {
@@ -1781,26 +1799,42 @@ async function linkExistingDriveFolder(opportunityUid, folderId, skipReload = fa
             }
             // If skipReload is true, the calling function will handle the UI update
         } else {
-            throw new Error(data.message || 'Failed to link Drive folder');
+            // Use the detailed error message from the server
+            const errorMsg = data.message || data.error || 'Failed to link Drive folder';
+            throw new Error(errorMsg);
         }
     } catch (error) {
         // Error linking Drive folder
-        let errorMessage = error.message;
+        console.error('[LINK-FOLDER] Error details:', error);
+        let errorMessage = error.message || 'Failed to link Drive folder';
         
-        // Provide more helpful error messages
-        if (error.message.includes('403') || error.message.includes('Forbidden')) {
-            errorMessage = 'Access denied. This could be:\n' +
-                          '1. Authentication token expired (try refreshing the page)\n' +
-                          '2. Google Drive API not enabled in Google Cloud Console\n' +
-                          '3. Service account lacks proper permissions\n' +
-                          '4. Folder is not shared with the service account';
-        } else if (error.message.includes('404') || error.message.includes('not found')) {
-            errorMessage = 'Folder not found. Please check:\n' +
+        // Provide more helpful error messages based on the actual error
+        if (errorMessage.includes('Access denied') || errorMessage.includes('access denied') || errorMessage.includes('403')) {
+            errorMessage = 'Access Denied:\n\n' +
+                          'The service account does not have access to this folder.\n\n' +
+                          'Solution:\n' +
+                          '1. Share the Google Drive folder with:\n' +
+                          '   tj-caballero@app-attachment.iam.gserviceaccount.com\n' +
+                          '2. Give it at least "Viewer" permissions\n' +
+                          '3. Try linking again';
+        } else if (errorMessage.includes('not found') || errorMessage.includes('404')) {
+            errorMessage = 'Folder Not Found:\n\n' +
+                          'The folder ID is invalid or the folder does not exist.\n\n' +
+                          'Please check:\n' +
                           '1. Folder ID is correct\n' +
-                          '2. Folder exists and is accessible\n' +
-                          '3. Service account has access to the folder';
-        } else if (error.message.includes('401') || error.message.includes('Unauthorized')) {
-            errorMessage = 'Authentication required. Please refresh the page and try again.';
+                          '2. Folder exists in Google Drive\n' +
+                          '3. Folder is not deleted or moved';
+        } else if (errorMessage.includes('Database error') || errorMessage.includes('database')) {
+            errorMessage = 'Database Error:\n\n' +
+                          'Failed to save folder link to database.\n\n' +
+                          'Please check server logs for details.';
+        } else if (errorMessage.includes('Google Drive API not initialized')) {
+            errorMessage = 'Google Drive Service Error:\n\n' +
+                          'The Google Drive service is not properly configured.\n\n' +
+                          'Please check:\n' +
+                          '1. Credentials file exists\n' +
+                          '2. Service account is valid\n' +
+                          '3. Google Drive API is enabled';
         }
         
         alert(`Error linking Drive folder:\n\n${errorMessage}`);
@@ -2939,11 +2973,13 @@ async function handleDriveFolderForNewOpportunity(opportunityUid, driveFolderCho
                 }
                 
                 // Extract folder ID from URL if needed
-                let folderId = existingFolderId;
-                if (folderId.includes('drive.google.com/drive/folders/')) {
+                // Handle both formats: drive.google.com/drive/folders/ and drive.google.com/drive/u/0/folders/
+                let folderId = existingFolderId.trim();
+                if (folderId.includes('drive.google.com') && folderId.includes('/folders/')) {
                     const urlParts = folderId.split('/folders/');
                     if (urlParts.length > 1) {
-                        folderId = urlParts[1].split('?')[0];
+                        folderId = urlParts[1].split('?')[0].split('&')[0]; // Remove query parameters and fragments
+                        folderId = folderId.trim(); // Remove any whitespace
                     }
                 }
                 
@@ -8387,8 +8423,8 @@ function startRealTimeUpdates() {
         }
     }, updateInterval);
     
-    // Clean up interval when page is unloaded
-    window.addEventListener('unload', () => {
+    // Clean up interval when page is unloaded (using pagehide for better browser compatibility)
+    window.addEventListener('pagehide', () => {
         clearInterval(intervalId);
     });
     
@@ -8965,7 +9001,8 @@ function initializeUserInfoOnDOMReady() {
 // Set up event listeners
 document.addEventListener('visibilitychange', handleVisibilityChange);
 window.addEventListener('beforeunload', cleanupUserPresence);
-window.addEventListener('unload', cleanupUserPresence);
+// Use pagehide instead of unload for better browser compatibility and permissions policy compliance
+window.addEventListener('pagehide', cleanupUserPresence);
 
 // Listen for storage changes (when other tabs update presence)
 window.addEventListener('storage', function(e) {
@@ -9003,10 +9040,31 @@ async function handleSyncFromDrive(event) {
             }
         });
         
-        const result = await response.json();
+        // Check if response exists and handle network errors
+        if (!response) {
+            throw new Error('Network error: No response from server. Please check your connection and try again.');
+        }
+        
+        // Handle connection errors (ECONNRESET, etc.)
+        if (!response.ok && response.status === 0) {
+            throw new Error('Connection error: Unable to reach the server. Please check your network connection and ensure the server is running.');
+        }
+        
+        // Try to parse JSON, but handle cases where response might not be valid JSON
+        let result;
+        try {
+            const text = await response.text();
+            if (!text) {
+                throw new Error('Empty response from server');
+            }
+            result = JSON.parse(text);
+        } catch (parseError) {
+            console.error('[SYNC] Failed to parse response:', parseError);
+            throw new Error(`Server error: Invalid response format. ${response.status ? `Status: ${response.status}` : 'Connection may have been reset.'}`);
+        }
         
         if (!response.ok) {
-            throw new Error(result.error || 'Sync failed');
+            throw new Error(result.error || `Sync failed: ${response.status} ${response.statusText}`);
         }
         
         if (result.success) {
@@ -9026,7 +9084,12 @@ async function handleSyncFromDrive(event) {
         
     } catch (error) {
         console.error('[SYNC] Sync failed:', error);
-        showSyncErrorMessage(error.message);
+        // Provide more user-friendly error messages
+        let errorMessage = error.message;
+        if (error.message.includes('ECONNRESET') || error.message.includes('ECONNREFUSED') || error.message.includes('fetch')) {
+            errorMessage = 'Connection error: Unable to sync from Google Drive. Please check your network connection and ensure the server is running, then try again.';
+        }
+        showSyncErrorMessage(errorMessage);
     } finally {
         // Restore button state
         syncBtn.disabled = false;

@@ -242,6 +242,13 @@ router.post('/sync-from-drive/:proposalUid', async (req, res) => {
         
         console.log(`[EXCEL_SYNC] Successfully synced proposal ${proposalUid}`);
         
+        // Convert Date objects to ISO strings for JSON serialization
+        const submittedDate = syncResult.excelFile.modifiedTime instanceof Date 
+            ? syncResult.excelFile.modifiedTime.toISOString() 
+            : (typeof syncResult.excelFile.modifiedTime === 'string' 
+                ? syncResult.excelFile.modifiedTime 
+                : new Date(syncResult.excelFile.modifiedTime).toISOString());
+        
         res.json({
             success: true,
             proposalUid: proposalUid,
@@ -249,10 +256,14 @@ router.post('/sync-from-drive/:proposalUid', async (req, res) => {
                 revisionNumber: syncResult.excelFile.revisionNumber,
                 margin: excelData.margin,
                 finalAmount: excelData.finalAmount,
-                submittedDate: syncResult.excelFile.modifiedTime,
+                submittedDate: submittedDate,
                 excelFileName: syncResult.excelFile.name
             },
-            calcsheetFolder: syncResult.calcsheetFolder
+            calcsheetFolder: syncResult.calcsheetFolder ? {
+                id: syncResult.calcsheetFolder.id,
+                name: syncResult.calcsheetFolder.name,
+                url: syncResult.calcsheetFolder.url
+            } : null
         });
         
     } catch (error) {
@@ -1406,7 +1417,13 @@ async function updateProposalFromExcel(db, proposalUid, excelData, userIdentifie
 
         if (excelData.submittedDate) {
             updateFields.push(`submitted_date = ?`);
-            updateValues.push(new Date(excelData.submittedDate));
+            // Convert Date to ISO string for database compatibility
+            const submittedDateValue = excelData.submittedDate instanceof Date 
+                ? excelData.submittedDate.toISOString() 
+                : (typeof excelData.submittedDate === 'string' 
+                    ? excelData.submittedDate 
+                    : new Date(excelData.submittedDate).toISOString());
+            updateValues.push(submittedDateValue);
         }
 
         // Add metadata fields (check if columns exist first)
@@ -1420,7 +1437,8 @@ async function updateProposalFromExcel(db, proposalUid, excelData, userIdentifie
 
             if (columnCheck.rows[0].column_exists > 0) {
                 updateFields.push(`last_excel_sync = ?`);
-                updateValues.push(new Date());
+                // Convert Date to ISO string for database compatibility
+                updateValues.push(new Date().toISOString());
             } else {
                 console.log('[EXCEL_SYNC] Warning: last_excel_sync column does not exist, skipping metadata update');
             }

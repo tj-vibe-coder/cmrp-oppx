@@ -1,9 +1,11 @@
 /**
- * Database Adapter for PostgreSQL and SQLiteCloud
+ * Database Adapter for PostgreSQL, SQLiteCloud, and Local SQLite
  * This module provides a unified interface for database operations
  */
 
 require('dotenv').config();
+const path = require('path');
+const fs = require('fs');
 
 let db = null;
 let dbType = null;
@@ -26,6 +28,26 @@ async function initDatabase() {
         await db.sql`PRAGMA foreign_keys = ON`;
         dbType = 'sqlitecloud';
         console.log('✅ Connected to SQLiteCloud');
+    } else if (databaseUrl.startsWith('sqlite://') || databaseUrl.startsWith('sqlite:')) {
+        // Local SQLite file connection
+        const Database = require('better-sqlite3');
+        let dbPath = databaseUrl.replace(/^sqlite:\/\/?/, '');
+        
+        // Resolve relative paths
+        if (!path.isAbsolute(dbPath)) {
+            dbPath = path.resolve(process.cwd(), dbPath);
+        }
+        
+        // Create directory if it doesn't exist
+        const dbDir = path.dirname(dbPath);
+        if (!fs.existsSync(dbDir)) {
+            fs.mkdirSync(dbDir, { recursive: true });
+        }
+        
+        db = new Database(dbPath);
+        db.pragma('foreign_keys = ON');
+        dbType = 'sqlite';
+        console.log(`✅ Connected to local SQLite database: ${dbPath}`);
     } else if (databaseUrl.startsWith('postgresql://') || databaseUrl.startsWith('postgres://')) {
         // PostgreSQL connection
         const { Pool } = require('pg');
@@ -33,8 +55,28 @@ async function initDatabase() {
         await db.query('SELECT NOW()'); // Test connection
         dbType = 'postgresql';
         console.log('✅ Connected to PostgreSQL');
+    } else if (!databaseUrl.includes('://') && (databaseUrl.endsWith('.db') || databaseUrl.endsWith('.sqlite'))) {
+        // Direct file path (e.g., ./database.db)
+        const Database = require('better-sqlite3');
+        let dbPath = databaseUrl;
+        
+        // Resolve relative paths
+        if (!path.isAbsolute(dbPath)) {
+            dbPath = path.resolve(process.cwd(), dbPath);
+        }
+        
+        // Create directory if it doesn't exist
+        const dbDir = path.dirname(dbPath);
+        if (!fs.existsSync(dbDir)) {
+            fs.mkdirSync(dbDir, { recursive: true });
+        }
+        
+        db = new Database(dbPath);
+        db.pragma('foreign_keys = ON');
+        dbType = 'sqlite';
+        console.log(`✅ Connected to local SQLite database: ${dbPath}`);
     } else {
-        throw new Error('Unsupported database URL format');
+        throw new Error(`Unsupported database URL format: ${databaseUrl}`);
     }
 
     return db;
@@ -73,6 +115,36 @@ async function query(sql, params = []) {
             console.error('SQLiteCloud query error:', error);
             throw error;
         }
+    } else if (dbType === 'sqlite') {
+        // Local SQLite query
+        try {
+            // Convert SQL for SQLite compatibility
+            const convertedSql = convertSQL(sql);
+            
+            // Determine if this is a SELECT query
+            const isSelect = /^\s*SELECT/i.test(convertedSql.trim());
+            
+            if (isSelect) {
+                const stmt = db.prepare(convertedSql);
+                const rows = stmt.all(...params);
+                return {
+                    rows: rows,
+                    rowCount: rows.length
+                };
+            } else {
+                // INSERT, UPDATE, DELETE
+                const stmt = db.prepare(convertedSql);
+                const result = stmt.run(...params);
+                return {
+                    rows: [],
+                    rowCount: result.changes || 0,
+                    lastID: result.lastInsertRowid
+                };
+            }
+        } catch (error) {
+            console.error('SQLite query error:', error);
+            throw error;
+        }
     } else if (dbType === 'postgresql') {
         // PostgreSQL query
         return await db.query(sql, params);
@@ -97,6 +169,16 @@ async function transaction(callback) {
             await query('ROLLBACK');
             throw error;
         }
+    } else if (dbType === 'sqlite') {
+        // Local SQLite transaction
+        db.exec('BEGIN TRANSACTION');
+        try {
+            await callback(query);
+            db.exec('COMMIT');
+        } catch (error) {
+            db.exec('ROLLBACK');
+            throw error;
+        }
     } else if (dbType === 'postgresql') {
         const client = await db.connect();
         try {
@@ -114,16 +196,16 @@ async function transaction(callback) {
 
 /**
  * Get a client for connection pooling (PostgreSQL only)
- * For SQLiteCloud, returns a query wrapper
+ * For SQLiteCloud and local SQLite, returns a query wrapper
  */
 async function getClient() {
     if (dbType === 'postgresql') {
         return await db.connect();
-    } else if (dbType === 'sqlitecloud') {
-        // Return a query wrapper for SQLiteCloud
+    } else if (dbType === 'sqlitecloud' || dbType === 'sqlite') {
+        // Return a query wrapper for SQLiteCloud and local SQLite
         return {
             query: query,
-            release: () => {} // No-op for SQLiteCloud
+            release: () => {} // No-op for SQLite
         };
     }
 }
@@ -135,7 +217,7 @@ async function close() {
     if (db) {
         if (dbType === 'postgresql') {
             await db.end();
-        } else if (dbType === 'sqlitecloud') {
+        } else if (dbType === 'sqlitecloud' || dbType === 'sqlite') {
             db.close();
         }
         console.log('✅ Database connection closed');
@@ -162,7 +244,7 @@ function getDBType() {
  * @returns {string} SQLite-compatible SQL
  */
 function convertSQL(sql) {
-    if (dbType !== 'sqlitecloud') {
+    if (dbType !== 'sqlitecloud' && dbType !== 'sqlite') {
         return sql;
     }
 

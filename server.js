@@ -118,7 +118,7 @@ const { NotificationService } = require('./backend/routes/notifications');
 
 // Add database middleware
 app.use((req, res, next) => {
-    req.db = pool;
+    req.db = db; // Use db_adapter instead of pool for unified database interface
     next();
 });
 
@@ -184,13 +184,33 @@ app.post('/api/login', express.json(), async (req, res) => {
             const user = result.rows[0];
 
             if (!user) {
+                console.log(`[LOGIN] User not found: ${email.toLowerCase()}`);
+                return res.status(401).json({ error: 'Invalid credentials' });
+            }
+
+            // Check if user has a password hash
+            if (!user.password_hash) {
+                console.error(`[LOGIN] User ${user.email} (ID: ${user.id}) has no password_hash - password reset required`);
+                return res.status(401).json({ error: 'Invalid credentials' });
+            }
+
+            // Validate password hash format
+            if (!user.password_hash.startsWith('$2')) {
+                console.error(`[LOGIN] User ${user.email} (ID: ${user.id}) has invalid password_hash format`);
                 return res.status(401).json({ error: 'Invalid credentials' });
             }
 
             // Compare password
-            const isPasswordValid = await bcrypt.compare(password, user.password_hash);
+            let isPasswordValid = false;
+            try {
+                isPasswordValid = await bcrypt.compare(password, user.password_hash);
+            } catch (bcryptError) {
+                console.error(`[LOGIN] Bcrypt comparison error for user ${user.email}:`, bcryptError);
+                return res.status(401).json({ error: 'Invalid credentials' });
+            }
 
             if (!isPasswordValid) {
+                console.log(`[LOGIN] Password mismatch for user: ${user.email}`);
                 return res.status(401).json({ error: 'Invalid credentials' });
             }
 
@@ -1849,24 +1869,21 @@ app.get('/api/next-project-code', authenticateToken, async (req, res) => {
     console.log('[API] Google Drive failed, falling back to database method...');
     
     try {
-      const client = await pool.connect();
+      const result = await db.query(`
+        SELECT project_code 
+        FROM opps_monitoring 
+        WHERE project_code IS NOT NULL 
+          AND project_code LIKE 'CMRP%' 
+        ORDER BY project_code DESC 
+        LIMIT 1
+      `);
       
-      try {
-        const result = await client.query(`
-          SELECT project_code 
-          FROM opps_monitoring 
-          WHERE project_code IS NOT NULL 
-            AND project_code LIKE 'CMRP%' 
-          ORDER BY project_code DESC 
-          LIMIT 1
-        `);
-        
-        let nextCode;
-        const currentYear = new Date().getFullYear().toString().slice(-2);
-        const currentMonth = String(new Date().getMonth() + 1).padStart(2, '0');
-        
-        if (result.rows.length === 0) {
-          nextCode = `CMRP${currentYear}${currentMonth}0001`;
+      let nextCode;
+      const currentYear = new Date().getFullYear().toString().slice(-2);
+      const currentMonth = String(new Date().getMonth() + 1).padStart(2, '0');
+      
+      if (result.rows.length === 0) {
+        nextCode = `CMRP${currentYear}${currentMonth}0001`;
         } else {
           const lastCode = result.rows[0].project_code;
           const match = lastCode.match(/^CMRP(\d{2})(\d{2})(\d{4})$/);
@@ -1891,10 +1908,6 @@ app.get('/api/next-project-code', authenticateToken, async (req, res) => {
           fallbackUsed: true,
           warning: 'Google Drive scan failed, using database fallback'
         });
-        
-      } finally {
-        client.release();
-      }
       
     } catch (fallbackError) {
       console.error('[API /api/next-project-code] Fallback error:', fallbackError);
@@ -2543,18 +2556,141 @@ app.post('/api/opportunities', authenticateToken,
       console.log('[SERVER] Auto-generated encoded_date:', newOpp.encoded_date);
     }
     
+    // Automatically generate project_code if not provided - ALWAYS use Google Drive as source of truth
+    if (!newOpp.project_code || newOpp.project_code.trim() === '') {
+      console.log('[SERVER] No project_code provided, auto-generating from Google Drive...');
+      try {
+        const currentYear = new Date().getFullYear().toString().slice(-2);
+        const currentMonth = String(new Date().getMonth() + 1).padStart(2, '0');
+        let nextCode;
+        
+        // ALWAYS try Google Drive first - it's the source of truth
+        console.log('[SERVER] ⚠️ REQUIRED: Scanning Google Drive for latest project codes...');
+        const GoogleDriveService = require('./google_drive_service.js');
+        const driveService = new GoogleDriveService();
+        
+        const initialized = await driveService.initialize();
+        if (!initialized) {
+          throw new Error('Google Drive service failed to initialize - cannot generate project code without Drive access');
+        }
+        
+        if (!process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID) {
+          throw new Error('GOOGLE_DRIVE_ROOT_FOLDER_ID not set in environment - cannot scan Drive folders');
+        }
+        
+        console.log('[SERVER] Google Drive initialized, scanning folders in root:', process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID);
+        
+        const listResponse = await driveService.drive.files.list({
+          q: `parents in '${process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID}' and mimeType='application/vnd.google-apps.folder' and name contains 'CMRP' and trashed=false`,
+          fields: 'files(id, name)',
+          pageSize: 1000
+        });
+        
+        const folders = listResponse.data.files || [];
+        console.log(`[SERVER] Found ${folders.length} CMRP folders in Google Drive`);
+        
+        // Extract project codes from folder names
+        const existingCodes = [];
+        folders.forEach(folder => {
+          const match = folder.name.match(/CMRP(\d{2})(\d{2})(\d{4})/);
+          if (match) {
+            const projectCode = match[0];
+            existingCodes.push(projectCode);
+            console.log(`[SERVER] Found code in Drive: ${projectCode} from folder: ${folder.name}`);
+          }
+        });
+        
+        // Find the highest sequence number for current year/month
+        let highestSequence = 0;
+        existingCodes.forEach(code => {
+          const match = code.match(/^CMRP(\d{2})(\d{2})(\d{4})$/);
+          if (match) {
+            const [, year, month, sequence] = match;
+            if (year === currentYear && month === currentMonth) {
+              const seqNum = parseInt(sequence);
+              highestSequence = Math.max(highestSequence, seqNum);
+              console.log(`[SERVER] Found sequence ${seqNum} for ${year}/${month} (current highest: ${highestSequence})`);
+            }
+          }
+        });
+        
+        // Generate next code based on Drive scan
+        const nextSequence = (highestSequence + 1).toString().padStart(4, '0');
+        nextCode = `CMRP${currentYear}${currentMonth}${nextSequence}`;
+        
+        console.log(`[SERVER] ✅ Generated project_code from Google Drive: ${nextCode} (highest sequence found: ${highestSequence}, next: ${nextSequence})`);
+        
+        // Double-check that this code doesn't already exist in Drive
+        if (existingCodes.includes(nextCode)) {
+          console.warn(`[SERVER] ⚠️ Generated code ${nextCode} already exists in Drive, incrementing...`);
+          highestSequence++;
+          const nextSequence = (highestSequence + 1).toString().padStart(4, '0');
+          nextCode = `CMRP${currentYear}${currentMonth}${nextSequence}`;
+          console.log(`[SERVER] ✅ Incremented to: ${nextCode}`);
+        }
+        
+        // Also verify the code doesn't already exist in database (safety check)
+        const duplicateCheck = await db.query(
+          'SELECT uid FROM opps_monitoring WHERE project_code = ?',
+          [nextCode]
+        );
+        
+        if (duplicateCheck.rows.length > 0) {
+          console.warn(`[SERVER] ⚠️ Generated code ${nextCode} exists in database, incrementing...`);
+          let sequence = parseInt(nextCode.slice(-4));
+          let foundUnique = false;
+          while (!foundUnique && sequence < 9999) {
+            sequence++;
+            nextCode = `CMRP${currentYear}${currentMonth}${sequence.toString().padStart(4, '0')}`;
+            const check = await db.query(
+              'SELECT uid FROM opps_monitoring WHERE project_code = ?',
+              [nextCode]
+            );
+            if (check.rows.length === 0 && !existingCodes.includes(nextCode)) {
+              foundUnique = true;
+            }
+          }
+          if (!foundUnique) {
+            console.error('[SERVER] ❌ Could not find unique project_code after 9999 attempts');
+            throw new Error('Failed to generate unique project_code - too many conflicts');
+          }
+          console.log(`[SERVER] ✅ Found unique code after incrementing: ${nextCode}`);
+        }
+        
+        newOpp.project_code = nextCode;
+        console.log('[SERVER] ✅ Final auto-generated project_code:', newOpp.project_code);
+        
+      } catch (codeError) {
+        console.error('[SERVER] ❌ CRITICAL: Failed to auto-generate project_code from Google Drive:', codeError.message);
+        console.error('[SERVER] ❌ Error stack:', codeError.stack);
+        console.error('[SERVER] ❌ Project code generation requires Google Drive access. Please ensure:');
+        console.error('[SERVER]    1. GOOGLE_SERVICE_ACCOUNT_KEY is set in .env');
+        console.error('[SERVER]    2. GOOGLE_DRIVE_ROOT_FOLDER_ID is set in .env');
+        console.error('[SERVER]    3. Service account has access to the root folder');
+        // Don't continue without project_code - this is critical
+        throw new Error(`Failed to generate project code: ${codeError.message}. Project code generation requires Google Drive access.`);
+      }
+    }
+    
     newOpp = Object.fromEntries(Object.entries(newOpp).map(([k, v]) => [k, (typeof v === 'string' && v.trim() === '') ? null : v]));
 
     const keys = Object.keys(newOpp);
     const values = keys.map(k => newOpp[k]);
     const columns = keys.map(k => `"${k}"`).join(', ');
     const placeholders = keys.map(() => '?').join(', ');
-    const sql = `INSERT INTO opps_monitoring (${columns}) VALUES (${placeholders}) RETURNING *`;
+    // SQLite doesn't support RETURNING, so fetch separately
+    const sql = `INSERT INTO opps_monitoring (${columns}) VALUES (${placeholders})`;
 
     console.log('Executing SQL:', sql); console.log('With Values:', values);
     try {
-      const result = await db.query(sql, values);
-      const createdOpp = result.rows[0];
+      await db.query(sql, values);
+      // Fetch the created row
+      const fetchResult = await db.query('SELECT * FROM opps_monitoring WHERE uid = ?', [newOpp.uid]);
+      const createdOpp = fetchResult.rows[0];
+      
+      if (!createdOpp) {
+        throw new Error('Failed to retrieve created opportunity');
+      }
       const revKey = getColumnInsensitive(createdOpp, 'rev');
       const revNumber = revKey ? (Number(createdOpp[revKey]) || 0) : 0;
       // *** FIX: Use correct database column names in fieldsToStore ***
@@ -2571,34 +2707,65 @@ app.post('/api/opportunities', authenticateToken,
       );
       console.log(`Revision ${revNumber} created for new opportunity ${createdOpp.uid}`);
       
-      // Auto-create Google Drive folder if project has a code and no existing folder
-      if (createdOpp.project_code && !createdOpp.google_drive_folder_id) {
+      // Auto-create Google Drive folder if no existing folder
+      console.log(`[FOLDER-CREATE] Checking if folder creation needed. google_drive_folder_id: ${createdOpp.google_drive_folder_id || 'NULL'}`);
+      if (!createdOpp.google_drive_folder_id) {
         try {
-          console.log(`🔄 Auto-creating Google Drive folder for project: ${createdOpp.project_code}`);
+          const projectCode = createdOpp.project_code || 'NO_CODE';
+          console.log(`🔄 [FOLDER-CREATE] Auto-creating Google Drive folder for opportunity: ${createdOpp.project_name || 'Unnamed'} (Code: ${projectCode}, UID: ${createdOpp.uid})`);
           const GoogleDriveService = require('./google_drive_service.js');
           const driveService = new GoogleDriveService();
           
+          console.log(`[FOLDER-CREATE] Initializing Google Drive service...`);
           const initialized = await driveService.initialize();
+          console.log(`[FOLDER-CREATE] Initialization result: ${initialized}`);
+          
           if (initialized) {
+            console.log(`✅ [FOLDER-CREATE] Google Drive service initialized, creating folder...`);
+            console.log(`[FOLDER-CREATE] Opportunity data:`, JSON.stringify({
+              uid: createdOpp.uid,
+              project_code: createdOpp.project_code,
+              project_name: createdOpp.project_name,
+              client: createdOpp.client
+            }, null, 2));
+            
+            const createdBy = req.user?.name || req.user?.email || 'SYSTEM';
+            console.log(`[FOLDER-CREATE] Created by: ${createdBy}`);
+            
             const folderResult = await driveService.createFolderForOpportunity(
               createdOpp, 
-              req.user?.name || req.user?.email || 'SYSTEM'
+              createdBy
             );
-            console.log(`✅ Auto-created Google Drive folder: ${folderResult.name}`);
+            console.log(`✅ [FOLDER-CREATE] Auto-created Google Drive folder: ${folderResult.name} (ID: ${folderResult.id})`);
+            
+            // Refresh createdOpp with folder info
+            const updatedResult = await db.query('SELECT * FROM opps_monitoring WHERE uid = ?', [createdOpp.uid]);
+            if (updatedResult.rows.length > 0) {
+              const updatedOpp = updatedResult.rows[0];
+              Object.assign(createdOpp, updatedOpp);
+              console.log(`✅ [FOLDER-CREATE] Updated createdOpp with folder info: ${createdOpp.google_drive_folder_id}`);
+              console.log(`✅ [FOLDER-CREATE] Folder URL: ${createdOpp.google_drive_folder_url || 'N/A'}`);
+            } else {
+              console.error(`❌ [FOLDER-CREATE] Failed to fetch updated opportunity after folder creation`);
+            }
           } else {
-            console.log(`⚠️ Google Drive service not available, skipping auto-folder creation`);
+            console.error(`⚠️ [FOLDER-CREATE] Google Drive service initialization failed - check credentials and service account setup`);
+            console.error(`⚠️ [FOLDER-CREATE] Make sure GOOGLE_SERVICE_ACCOUNT_KEY is set or google-drive-credentials.json exists`);
           }
         } catch (driveError) {
           // Don't fail the opportunity creation if folder creation fails
-          console.error('❌ Auto Google Drive folder creation failed:', driveError.message);
+          console.error('❌ [FOLDER-CREATE] Auto Google Drive folder creation failed:', driveError.message);
+          console.error('❌ [FOLDER-CREATE] Error stack:', driveError.stack);
+          if (driveError.code) console.error('❌ [FOLDER-CREATE] Error code:', driveError.code);
+          if (driveError.errors) console.error('❌ [FOLDER-CREATE] Error details:', JSON.stringify(driveError.errors, null, 2));
         }
-      } else if (createdOpp.google_drive_folder_id) {
-        console.log(`📁 Project already has linked Google Drive folder, skipping auto-creation`);
+      } else {
+        console.log(`📁 [FOLDER-CREATE] Project already has linked Google Drive folder (${createdOpp.google_drive_folder_id}), skipping auto-creation`);
       }
       
       // Create notifications for assignments in new opportunities
       try {
-        const notificationService = new NotificationService(pool);
+        const notificationService = new NotificationService(db);
         const assignmentFields = ['pic', 'bom', 'account_mgr'];
         
         for (const field of assignmentFields) {
@@ -2606,8 +2773,8 @@ app.post('/api/opportunities', authenticateToken,
           
           // Check if assignment field has a value
           if (assignedValue && assignedValue.trim() !== '') {
-            // Find user by name (assuming the field contains user names)
-            const userQuery = 'SELECT id FROM users WHERE name ILIKE ? OR email ILIKE ? LIMIT 1';
+            // Find user by name (case-insensitive search for SQLite)
+            const userQuery = "SELECT id FROM users WHERE UPPER(name) = UPPER(?) OR UPPER(email) = UPPER(?) LIMIT 1";
             const userResult = await db.query(userQuery, [assignedValue.trim(), assignedValue.trim()]);
             
             if (userResult.rows.length > 0) {
@@ -2746,132 +2913,164 @@ app.put('/api/opportunities/:uid', authenticateToken,
     const keysToUpdate = Object.keys(updateData);
     if (keysToUpdate.length === 0) return res.status(400).json({ error: 'No data provided for update.' });
 
-    const client = await pool.connect();
     try {
-      await client.query('BEGIN');
-
-      // 1. Fetch Current State
-      console.log(`[PUT /api/opportunities/${uid}] Fetching current state...`);
-      const currentResult = await client.query('SELECT * FROM opps_monitoring WHERE uid = $1 FOR UPDATE', [uid]);
-      const currentOpp = currentResult.rows[0];
-      if (!currentResult.rows.length) {
-        await client.query('ROLLBACK');
-        console.log(`[PUT /api/opportunities/${uid}] Opportunity not found.`);
-        return res.status(404).json({ error: 'Opportunity not found.' });
-      }
-      console.log(`[PUT /api/opportunities/${uid}] Current Opp Data:`, JSON.stringify(currentOpp, null, 2));
-
-      // After fetching currentOpp and before updating the main table:
-      const oldForecastDate = currentOpp['forecast_date'] || null;
-      const newForecastDate = updateData['forecast_date'] || null;
-      if (oldForecastDate !== newForecastDate && newForecastDate) {
-        await client.query(
-          `INSERT INTO forecast_revisions (opportunity_uid, old_forecast_date, new_forecast_date, changed_by)
-           VALUES ($1, $2, $3, $4)`,
-          [uid, oldForecastDate, newForecastDate, changed_by]
-        );
-        console.log(`[PUT /api/opportunities/${uid}] Forecast change logged: ${oldForecastDate} -> ${newForecastDate}`);
-      }
-
-      // 2. Determine Revision Numbers and if Changed (using direct key access and number conversion)
-      const oldRevValue = currentOpp['rev'];
-      const newRevValue = updateData['rev'];
-      console.log(`[PUT /api/opportunities/${uid}] Comparing Old Rev Value: ${oldRevValue} (Type: ${typeof oldRevValue}), New Rev Value: ${newRevValue} (Type: ${typeof newRevValue})`);
-      const oldRevNumber = Number(oldRevValue) || 0;
-      const newRevNumber = (newRevValue !== undefined && !isNaN(Number(newRevValue))) ? Number(newRevValue) : oldRevNumber;
-      const isRevChanged = newRevNumber !== oldRevNumber;
-      console.log(`[PUT /api/opportunities/${uid}] Determined Old Rev#: ${oldRevNumber}, Determined New Rev#: ${newRevNumber}, isRevChanged: ${isRevChanged}`);
-
-      // 3. Build Snapshot of State *Before* Update
-      // *** FIX: Use correct database column names in fieldsToStore ***
-      const fieldsToStore = ['rev', 'final_amt', 'margin', 'client_deadline', 'submitted_date', 'forecast_date'];
-      const buildSnapshot = (row) => {
-          const snap = {};
-          fieldsToStore.forEach(f => {
-              const key = (f === 'rev') ? 'rev' : getColumnInsensitive(row, f);
-              if (key && row.hasOwnProperty(key)) { snap[f] = row[key]; }
-              else { snap[f] = null; }
-          });
-          return snap;
-      };
-      const prevSnapshot = buildSnapshot(currentOpp);
-      console.log(`[PUT /api/opportunities/${uid}] Previous Snapshot (for rev ${oldRevNumber}):`, JSON.stringify(prevSnapshot, null, 2));
-
-      // 4. Update Main Table
-      const setClause = keysToUpdate.map((key, idx) => `"${key}" = $${idx + 1}`).join(', ');
-      const values = keysToUpdate.map(key => updateData[key]);
-      values.push(uid);
-      const updateSql = `UPDATE opps_monitoring SET ${setClause} WHERE uid = $${values.length} RETURNING *`;
-      console.log('[PUT] Executing Update SQL:', updateSql); console.log('With Values:', values);
-      const updateResult = await client.query(updateSql, values);
-      const updatedOpp = updateResult.rows[0];
-      console.log(`[PUT /api/opportunities/${uid}] Updated Opp Data:`, JSON.stringify(updatedOpp, null, 2));
-
-      // 5. Build Snapshot of State *After* Update
-      const updatedSnapshot = buildSnapshot(updatedOpp);
-      console.log(`[PUT /api/opportunities/${uid}] Updated Snapshot (for rev ${newRevNumber}):`, JSON.stringify(updatedSnapshot, null, 2));
-
-      // 6. Track Actual Field Changes for Revision History
-      const actualChangedFields = {};
+      let currentOpp, updatedOpp, actualChangedFields, newRevNumber, oldRevNumber, isRevChanged;
       
-      // Compare each field that was updated to determine actual changes
-      keysToUpdate.forEach(fieldName => {
-          const oldValue = currentOpp[fieldName];
-          const newValue = updatedOpp[fieldName];
-          
-          // Only record as changed if values are actually different
-          if (oldValue !== newValue) {
-              actualChangedFields[fieldName] = {
-                  old: oldValue,
-                  new: newValue
-              };
-          }
+      // Use db.transaction for unified database interface
+      await db.transaction(async (query) => {
+        // 1. Fetch Current State
+        console.log(`[PUT /api/opportunities/${uid}] Fetching current state...`);
+        const currentResult = await query('SELECT * FROM opps_monitoring WHERE uid = ?', [uid]);
+        currentOpp = currentResult.rows[0];
+        if (!currentResult.rows.length) {
+          console.log(`[PUT /api/opportunities/${uid}] Opportunity not found.`);
+          throw new Error('Opportunity not found');
+        }
+        console.log(`[PUT /api/opportunities/${uid}] Current Opp Data:`, JSON.stringify(currentOpp, null, 2));
+
+        // After fetching currentOpp and before updating the main table:
+        const oldForecastDate = currentOpp['forecast_date'] || null;
+        const newForecastDate = updateData['forecast_date'] || null;
+        if (oldForecastDate !== newForecastDate && newForecastDate) {
+          await query(
+            `INSERT INTO forecast_revisions (opportunity_uid, old_forecast_date, new_forecast_date, changed_by)
+             VALUES (?, ?, ?, ?)`,
+            [uid, oldForecastDate, newForecastDate, changed_by]
+          );
+          console.log(`[PUT /api/opportunities/${uid}] Forecast change logged: ${oldForecastDate} -> ${newForecastDate}`);
+        }
+
+        // 2. Determine Revision Numbers and if Changed (using direct key access and number conversion)
+        const oldRevValue = currentOpp['rev'];
+        const newRevValue = updateData['rev'];
+        console.log(`[PUT /api/opportunities/${uid}] Comparing Old Rev Value: ${oldRevValue} (Type: ${typeof oldRevValue}), New Rev Value: ${newRevValue} (Type: ${typeof newRevValue})`);
+        oldRevNumber = Number(oldRevValue) || 0;
+        newRevNumber = (newRevValue !== undefined && !isNaN(Number(newRevValue))) ? Number(newRevValue) : oldRevNumber;
+        isRevChanged = newRevNumber !== oldRevNumber;
+        console.log(`[PUT /api/opportunities/${uid}] Determined Old Rev#: ${oldRevNumber}, Determined New Rev#: ${newRevNumber}, isRevChanged: ${isRevChanged}`);
+
+        // 3. Build Snapshot of State *Before* Update
+        const fieldsToStore = ['rev', 'final_amt', 'margin', 'client_deadline', 'submitted_date', 'forecast_date'];
+        const buildSnapshot = (row) => {
+            const snap = {};
+            fieldsToStore.forEach(f => {
+                const key = (f === 'rev') ? 'rev' : getColumnInsensitive(row, f);
+                if (key && row.hasOwnProperty(key)) { snap[f] = row[key]; }
+                else { snap[f] = null; }
+            });
+            return snap;
+        };
+        const prevSnapshot = buildSnapshot(currentOpp);
+        console.log(`[PUT /api/opportunities/${uid}] Previous Snapshot (for rev ${oldRevNumber}):`, JSON.stringify(prevSnapshot, null, 2));
+
+        // 4. Update Main Table (SQLite doesn't support RETURNING, so fetch separately)
+        const setClause = keysToUpdate.map((key, idx) => `"${key}" = ?`).join(', ');
+        const values = keysToUpdate.map(key => updateData[key]);
+        values.push(uid);
+        const updateSql = `UPDATE opps_monitoring SET ${setClause} WHERE uid = ?`;
+        console.log('[PUT] Executing Update SQL:', updateSql); console.log('With Values:', values);
+        await query(updateSql, values);
+        
+        // Fetch updated row
+        const updatedResult = await query('SELECT * FROM opps_monitoring WHERE uid = ?', [uid]);
+        updatedOpp = updatedResult.rows[0];
+        console.log(`[PUT /api/opportunities/${uid}] Updated Opp Data:`, JSON.stringify(updatedOpp, null, 2));
+
+        // 5. Build Snapshot of State *After* Update
+        const updatedSnapshot = buildSnapshot(updatedOpp);
+        console.log(`[PUT /api/opportunities/${uid}] Updated Snapshot (for rev ${newRevNumber}):`, JSON.stringify(updatedSnapshot, null, 2));
+
+        // 6. Track Actual Field Changes for Revision History
+        actualChangedFields = {};
+        
+        // Compare each field that was updated to determine actual changes
+        keysToUpdate.forEach(fieldName => {
+            const oldValue = currentOpp[fieldName];
+            const newValue = updatedOpp[fieldName];
+            
+            // Only record as changed if values are actually different
+            if (oldValue !== newValue) {
+                actualChangedFields[fieldName] = {
+                    old: oldValue,
+                    new: newValue
+                };
+            }
+        });
+        
+        console.log(`[PUT /api/opportunities/${uid}] Actual Changed Fields:`, JSON.stringify(actualChangedFields, null, 2));
+
+        // 7. Handle Revision History Logic (Enhanced to track actual changes)
+        // Always UPSERT the *current* state for the current/new revision number with the changes made
+        console.log(`[Revision] Upserting current revision state: ${newRevNumber}`);
+        
+        // Check if revision already exists
+        const existingRevCheck = await query(
+            'SELECT id FROM opportunity_revisions WHERE opportunity_uid = ? AND revision_number = ?',
+            [uid, newRevNumber]
+        );
+        
+        if (existingRevCheck.rows.length > 0) {
+            // Update existing revision
+            await query(`
+                UPDATE opportunity_revisions 
+                SET changed_by = ?,
+                    changed_at = datetime('now'),
+                    changed_fields = ?,
+                    full_snapshot = ?
+                WHERE opportunity_uid = ? AND revision_number = ?`,
+                [
+                    changed_by,
+                    JSON.stringify(actualChangedFields),
+                    JSON.stringify(updatedSnapshot),
+                    uid,
+                    newRevNumber
+                ]
+            );
+        } else {
+            // Insert new revision
+            await query(`
+                INSERT INTO opportunity_revisions (opportunity_uid, revision_number, changed_by, changed_at, changed_fields, full_snapshot)
+                VALUES (?, ?, ?, datetime('now'), ?, ?)`,
+                [
+                    uid,
+                    newRevNumber,
+                    changed_by,
+                    JSON.stringify(actualChangedFields),
+                    JSON.stringify(updatedSnapshot)
+                ]
+            );
+        }
+
+        // If revision changed, also ensure previous state is recorded (without field changes since that's for the current revision)
+        if (isRevChanged) {
+            console.log(`[Revision] Revision Changed. Inserting previous revision (if not exists): ${oldRevNumber}`);
+            
+            // Check if old revision already exists
+            const oldRevCheck = await query(
+                'SELECT id FROM opportunity_revisions WHERE opportunity_uid = ? AND revision_number = ?',
+                [uid, oldRevNumber]
+            );
+            
+            if (oldRevCheck.rows.length === 0) {
+                // Insert old revision only if it doesn't exist
+                await query(`
+                    INSERT INTO opportunity_revisions (opportunity_uid, revision_number, changed_by, changed_at, changed_fields, full_snapshot)
+                    VALUES (?, ?, ?, datetime('now'), ?, ?)`,
+                    [
+                        uid,
+                        oldRevNumber,
+                        changed_by,
+                        JSON.stringify({}),
+                        JSON.stringify(prevSnapshot)
+                    ]
+                );
+            }
+        }
       });
       
-      console.log(`[PUT /api/opportunities/${uid}] Actual Changed Fields:`, JSON.stringify(actualChangedFields, null, 2));
-
-      // 7. Handle Revision History Logic (Enhanced to track actual changes)
-      // Always UPSERT the *current* state for the current/new revision number with the changes made
-      console.log(`[Revision] Upserting current revision state: ${newRevNumber}`);
-      const revisionSqlUpsert = `
-          INSERT INTO opportunity_revisions (opportunity_uid, revision_number, changed_by, changed_at, changed_fields, full_snapshot)
-          VALUES ($1, $2, $3, NOW(), $4, $5)
-          ON CONFLICT (opportunity_uid, revision_number)
-          DO UPDATE SET
-              changed_by = EXCLUDED.changed_by,
-              changed_at = NOW(),
-              changed_fields = EXCLUDED.changed_fields,
-              full_snapshot = EXCLUDED.full_snapshot`;
-      await client.query(revisionSqlUpsert, [
-          uid,
-          newRevNumber, // Use the potentially new revision number
-          changed_by,
-          JSON.stringify(actualChangedFields), // Store what changed in this revision
-          JSON.stringify(updatedSnapshot)
-      ]);
-
-      // If revision changed, also ensure previous state is recorded (without field changes since that's for the current revision)
-      if (isRevChanged) {
-          console.log(`[Revision] Revision Changed. Inserting previous revision (if not exists): ${oldRevNumber}`);
-          const insertOldSql = `
-              INSERT INTO opportunity_revisions (opportunity_uid, revision_number, changed_by, changed_at, changed_fields, full_snapshot)
-              VALUES ($1, $2, $3, NOW(), $4, $5)
-              ON CONFLICT (opportunity_uid, revision_number) DO NOTHING`;
-          await client.query(insertOldSql, [
-              uid,
-              oldRevNumber,
-              changed_by,
-              JSON.stringify({}), // No field changes for historical record
-              JSON.stringify(prevSnapshot)
-          ]);
-      }
-
-      // COMMIT the transaction
-      await client.query('COMMIT');
-      
-      // Check for assignment changes and create notifications
+      // Check for assignment changes and create notifications (outside transaction)
       try {
-        const notificationService = new NotificationService(pool);
+        const notificationService = new NotificationService(db);
         const assignmentFields = ['pic', 'bom', 'account_mgr'];
         
         for (const field of assignmentFields) {
@@ -2880,8 +3079,8 @@ app.put('/api/opportunities/:uid', authenticateToken,
           
           // Check if assignment changed and new value is not empty
           if (oldValue !== newValue && newValue && newValue.trim() !== '') {
-            // Find user by name (assuming the field contains user names)
-            const userQuery = 'SELECT id FROM users WHERE name ILIKE ? OR email ILIKE ? LIMIT 1';
+            // Find user by name (case-insensitive search for SQLite)
+            const userQuery = "SELECT id FROM users WHERE UPPER(name) = UPPER(?) OR UPPER(email) = UPPER(?) LIMIT 1";
             const userResult = await db.query(userQuery, [newValue.trim(), newValue.trim()]);
             
             if (userResult.rows.length > 0) {
@@ -2921,17 +3120,18 @@ app.put('/api/opportunities/:uid', authenticateToken,
       });
 
     } catch (error) {
-      // ROLLBACK on any error
-      await client.query('ROLLBACK');
       console.error(`[PUT /api/opportunities/${uid}] Error:`, error);
+      
+      // Handle "Opportunity not found" error specifically
+      if (error.message === 'Opportunity not found') {
+        return res.status(404).json({ error: 'Opportunity not found.' });
+      }
+      
       res.status(500).json({ 
           error: 'Failed to update opportunity',
           message: error.message,
           details: error.stack
       });
-    } finally {
-      // Always release the client back to the pool
-      client.release();
     }
   }
 );
@@ -4107,46 +4307,40 @@ app.post('/api/opportunities/:uid/drive-folder', authenticateToken, async (req, 
 
   try {
     // Get opportunity data
-    const client = await pool.connect();
-    try {
-      const result = await client.query(
-        'SELECT * FROM opps_monitoring WHERE uid = $1',
-        [uid]
-      );
+    const result = await db.query(
+      'SELECT * FROM opps_monitoring WHERE uid = ?',
+      [uid]
+    );
 
-      if (result.rows.length === 0) {
-        return res.status(404).json({ error: 'Opportunity not found' });
-      }
-
-      const opportunity = result.rows[0];
-
-      // Check if folder already exists
-      if (opportunity.google_drive_folder_id) {
-        return res.status(400).json({ 
-          error: 'Drive folder already linked to this opportunity',
-          folderId: opportunity.google_drive_folder_id,
-          folderUrl: opportunity.google_drive_folder_url
-        });
-      }
-
-      // Create folder using Drive service
-      const driveService = new GoogleDriveService();
-      await driveService.initialize();
-
-      const folderResult = await driveService.createFolderForOpportunity(
-        opportunity, 
-        req.user.name || req.user.email
-      );
-
-      res.json({
-        success: true,
-        folder: folderResult,
-        message: 'Drive folder created and linked successfully'
-      });
-
-    } finally {
-      client.release();
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Opportunity not found' });
     }
+
+    const opportunity = result.rows[0];
+
+    // Check if folder already exists
+    if (opportunity.google_drive_folder_id) {
+      return res.status(400).json({ 
+        error: 'Drive folder already linked to this opportunity',
+        folderId: opportunity.google_drive_folder_id,
+        folderUrl: opportunity.google_drive_folder_url
+      });
+    }
+
+    // Create folder using Drive service
+    const driveService = new GoogleDriveService();
+    await driveService.initialize();
+
+    const folderResult = await driveService.createFolderForOpportunity(
+      opportunity, 
+      req.user.name || req.user.email
+    );
+
+    res.json({
+      success: true,
+      folder: folderResult,
+      message: 'Drive folder created and linked successfully'
+    });
 
   } catch (error) {
     console.error(`[POST /api/opportunities/${uid}/drive-folder] Error:`, error);
@@ -4160,12 +4354,28 @@ app.post('/api/opportunities/:uid/drive-folder', authenticateToken, async (req, 
 // Link existing Google Drive folder to an opportunity
 app.put('/api/opportunities/:uid/drive-folder', authenticateToken, async (req, res) => {
   const { uid } = req.params;
-  const { folderId } = req.body;
+  let { folderId } = req.body;
   console.log(`[PUT /api/opportunities/${uid}/drive-folder] === START ===`);
-  console.log(`[DEBUG] Request body:`, req.body);
-  console.log(`[DEBUG] Folder ID:`, folderId);
+  console.log(`[DEBUG] Request body:`, JSON.stringify(req.body));
+  console.log(`[DEBUG] Raw folder ID:`, folderId);
   console.log(`[DEBUG] Folder ID type:`, typeof folderId);
   console.log(`[DEBUG] Folder ID length:`, folderId ? folderId.length : 'N/A');
+  
+  // Clean and validate folder ID
+  if (folderId) {
+    folderId = String(folderId).trim();
+    // Remove any URL encoding or extra characters
+    if (folderId.includes('drive.google.com')) {
+      const match = folderId.match(/\/folders\/([a-zA-Z0-9_-]+)/);
+      if (match) {
+        folderId = match[1];
+        console.log(`[DEBUG] Extracted folder ID from URL:`, folderId);
+      }
+    }
+  }
+  
+  console.log(`[DEBUG] Cleaned folder ID:`, folderId);
+  console.log(`[DEBUG] Cleaned folder ID length:`, folderId ? folderId.length : 'N/A');
 
   if (!folderId) {
     console.log(`[ERROR] Missing folder ID in request`);
@@ -4184,11 +4394,16 @@ app.put('/api/opportunities/:uid/drive-folder', authenticateToken, async (req, r
 
     const validation = await driveService.validateFolderAccess(folderId);
     if (!validation.valid) {
-      return res.status(400).json({ 
-        error: 'Invalid folder ID or access denied',
-        details: validation.error
+      console.error(`[PUT /api/opportunities/${uid}/drive-folder] Folder validation failed:`, validation.error);
+      console.error(`[PUT /api/opportunities/${uid}/drive-folder] Error code:`, validation.errorCode);
+      return res.status(validation.errorCode === 403 ? 403 : 400).json({ 
+        error: validation.error || 'Invalid folder ID or access denied',
+        details: validation.errorDetails,
+        errorCode: validation.errorCode
       });
     }
+    
+    console.log(`[PUT /api/opportunities/${uid}/drive-folder] Folder validated: ${validation.folderName || folderId}`);
 
     // Link the folder
     const folderResult = await driveService.linkExistingFolder(
@@ -4205,9 +4420,25 @@ app.put('/api/opportunities/:uid/drive-folder', authenticateToken, async (req, r
 
   } catch (error) {
     console.error(`[PUT /api/opportunities/${uid}/drive-folder] Error:`, error);
-    res.status(500).json({
+    console.error(`[PUT /api/opportunities/${uid}/drive-folder] Error stack:`, error.stack);
+    
+    // Provide more specific error messages
+    let errorMessage = error.message || 'Failed to link Drive folder';
+    let statusCode = 500;
+    
+    if (error.message.includes('not found')) {
+      statusCode = 404;
+    } else if (error.message.includes('access denied') || error.message.includes('Access denied')) {
+      statusCode = 403;
+    } else if (error.message.includes('database')) {
+      statusCode = 500;
+      errorMessage = `Database error: ${error.message}`;
+    }
+    
+    res.status(statusCode).json({
       error: 'Failed to link Drive folder',
-      message: error.message
+      message: errorMessage,
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 });
@@ -4251,32 +4482,30 @@ app.get('/api/opportunities/:uid/drive-folder', authenticateToken, async (req, r
   console.log(`[GET /api/opportunities/${uid}/drive-folder] === START ===`);
 
   try {
-    const client = await pool.connect();
-    try {
-      const result = await client.query(
-        `SELECT 
-          google_drive_folder_id,
-          google_drive_folder_url,
-          google_drive_folder_name,
-          drive_folder_created_at,
-          drive_folder_created_by
-        FROM opps_monitoring 
-        WHERE uid = $1`,
-        [uid]
-      );
+    const result = await db.query(
+      `SELECT 
+        google_drive_folder_id,
+        google_drive_folder_url,
+        google_drive_folder_name,
+        drive_folder_created_at,
+        drive_folder_created_by
+      FROM opps_monitoring 
+      WHERE uid = ?`,
+      [uid]
+    );
 
-      if (result.rows.length === 0) {
-        return res.status(404).json({ error: 'Opportunity not found' });
-      }
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Opportunity not found' });
+    }
 
-      const folderData = result.rows[0];
+    const folderData = result.rows[0];
 
-      if (!folderData.google_drive_folder_id) {
-        return res.json({ 
-          hasFolder: false,
-          message: 'No Drive folder linked to this opportunity'
-        });
-      }
+    if (!folderData.google_drive_folder_id) {
+      return res.json({ 
+        hasFolder: false,
+        message: 'No Drive folder linked to this opportunity'
+      });
+    }
 
       res.json({
         hasFolder: true,
@@ -4288,10 +4517,6 @@ app.get('/api/opportunities/:uid/drive-folder', authenticateToken, async (req, r
           createdBy: folderData.drive_folder_created_by
         }
       });
-
-    } finally {
-      client.release();
-    }
 
   } catch (error) {
     console.error(`[GET /api/opportunities/${uid}/drive-folder] Error:`, error);

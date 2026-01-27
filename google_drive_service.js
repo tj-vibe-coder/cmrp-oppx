@@ -1,17 +1,21 @@
 const { google } = require('googleapis');
-const { Pool } = require('pg');
+const db = require('./db_adapter');
 require('dotenv').config();
 
-// Database connection using existing configuration
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgresql://cmrp_user:cmrp0601@100.118.59.44:5432/cmrp_opps_db',
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
-});
-
-// Set search path for all new connections
-pool.on('connect', (client) => {
-  client.query('SET search_path TO public');
-});
+// Initialize database connection (will use db_adapter for SQLiteCloud/PostgreSQL/SQLite)
+// Note: Database should already be initialized by server.js, but we ensure it's ready
+let dbInitialized = false;
+(async () => {
+  try {
+    if (!db.getDBType()) {
+      await db.initDatabase();
+    }
+    dbInitialized = true;
+    console.log('✅ Google Drive Service: Database adapter ready');
+  } catch (error) {
+    console.error('❌ Google Drive Service: Database initialization failed:', error);
+  }
+})();
 
 // Configuration
 const GOOGLE_DRIVE_CONFIG = {
@@ -98,17 +102,27 @@ class GoogleDriveService {
 
   async createFolderForOpportunity(opportunityData, createdBy = 'SYSTEM') {
     try {
+      console.log(`[CREATE-FOLDER] Starting folder creation process...`);
+      console.log(`[CREATE-FOLDER] Opportunity UID: ${opportunityData.uid}`);
+      console.log(`[CREATE-FOLDER] Project name: ${opportunityData.project_name}`);
+      console.log(`[CREATE-FOLDER] Project code: ${opportunityData.project_code}`);
+      console.log(`[CREATE-FOLDER] Created by: ${createdBy}`);
+      
       if (!this.drive) {
+        console.error(`[CREATE-FOLDER] Google Drive API not initialized - this.drive is null`);
         throw new Error('Google Drive API not initialized');
       }
 
-      console.log(`📁 Creating Drive folder for opportunity: ${opportunityData.project_name}`);
+      console.log(`[CREATE-FOLDER] Google Drive API is initialized, proceeding...`);
 
       // Generate folder name from opportunity data
       const folderName = this.generateFolderName(opportunityData, createdBy);
+      console.log(`[CREATE-FOLDER] Generated folder name: ${folderName}`);
       
       // Determine parent folder
+      console.log(`[CREATE-FOLDER] Determining parent folder...`);
       const parentFolderId = await this.getOrCreateParentFolder(opportunityData);
+      console.log(`[CREATE-FOLDER] Parent folder ID: ${parentFolderId || 'ROOT (no parent)'}`);
       
       // Create the folder
       const folderMetadata = {
@@ -117,24 +131,34 @@ class GoogleDriveService {
         parents: parentFolderId ? [parentFolderId] : undefined
       };
 
+      console.log(`[CREATE-FOLDER] Creating folder with metadata:`, JSON.stringify(folderMetadata, null, 2));
       const response = await this.drive.files.create({
         resource: folderMetadata,
         fields: 'id, name, webViewLink'
       });
 
       const folder = response.data;
-      console.log(`✅ Created folder: ${folder.name} (ID: ${folder.id})`);
+      console.log(`✅ [CREATE-FOLDER] Created folder: ${folder.name} (ID: ${folder.id})`);
+      console.log(`[CREATE-FOLDER] Folder URL: ${folder.webViewLink}`);
 
       // Set folder permissions (optional - make it accessible to organization)
-      await this.setFolderPermissions(folder.id);
+      console.log(`[CREATE-FOLDER] Setting folder permissions...`);
+      try {
+        await this.setFolderPermissions(folder.id);
+        console.log(`✅ [CREATE-FOLDER] Folder permissions set`);
+      } catch (permError) {
+        console.warn(`⚠️ [CREATE-FOLDER] Failed to set permissions (non-critical): ${permError.message}`);
+      }
 
       // Update database with folder information
+      console.log(`[CREATE-FOLDER] Updating database with folder information...`);
       await this.updateOpportunityWithFolder(opportunityData.uid, {
         folderId: folder.id,
         folderUrl: folder.webViewLink,
         folderName: folder.name,
         createdBy: createdBy
       });
+      console.log(`✅ [CREATE-FOLDER] Database updated successfully`);
 
       return {
         id: folder.id,
@@ -144,7 +168,12 @@ class GoogleDriveService {
       };
 
     } catch (error) {
-      console.error('❌ Failed to create Drive folder:', error.message);
+      console.error('❌ [CREATE-FOLDER] Failed to create Drive folder:', error.message);
+      console.error('❌ [CREATE-FOLDER] Error code:', error.code);
+      console.error('❌ [CREATE-FOLDER] Error stack:', error.stack);
+      if (error.errors) {
+        console.error('❌ [CREATE-FOLDER] Error details:', JSON.stringify(error.errors, null, 2));
+      }
       throw error;
     }
   }
@@ -152,16 +181,38 @@ class GoogleDriveService {
   async linkExistingFolder(opportunityUid, folderId, linkedBy = 'USER') {
     try {
       if (!this.drive) {
-        throw new Error('Google Drive API not initialized');
+        await this.initialize();
+        if (!this.drive) {
+          throw new Error('Google Drive API not initialized. Please check credentials.');
+        }
       }
 
-      console.log(`🔗 Linking existing folder ${folderId} to opportunity ${opportunityUid}`);
+      // Clean the folder ID
+      const cleanFolderId = String(folderId).trim();
+      console.log(`🔗 Linking existing folder "${cleanFolderId}" (length: ${cleanFolderId.length}) to opportunity ${opportunityUid}`);
 
       // Get folder information from Drive
-      const response = await this.drive.files.get({
-        fileId: folderId,
-        fields: 'id, name, webViewLink, mimeType'
-      });
+      let response;
+      try {
+        console.log(`[LINK] Attempting to get folder info from Google Drive API...`);
+        response = await this.drive.files.get({
+          fileId: cleanFolderId,
+          fields: 'id, name, webViewLink, mimeType'
+        });
+        console.log(`[LINK] Successfully retrieved folder info: ${response.data.name}`);
+      } catch (driveError) {
+        console.error(`[LINK] Google Drive API error for folder ID "${cleanFolderId}":`, driveError.message);
+        console.error(`[LINK] Error code:`, driveError.code);
+        console.error(`[LINK] Error details:`, driveError.errors);
+        
+        if (driveError.code === 404 || driveError.message.includes('File not found') || driveError.message.includes('not found')) {
+          throw new Error(`Folder not found. The folder ID "${cleanFolderId}" does not exist or cannot be accessed. Please verify the folder ID is correct.`);
+        } else if (driveError.code === 403 || driveError.message.includes('insufficient authentication') || driveError.message.includes('permission') || driveError.message.includes('Access denied')) {
+          throw new Error('Access denied. The service account does not have access to this folder. Please share it with: tj-caballero@app-attachment.iam.gserviceaccount.com');
+        } else {
+          throw new Error(`Google Drive API error: ${driveError.message} (Code: ${driveError.code || 'unknown'})`);
+        }
+      }
 
       const folder = response.data;
       
@@ -171,12 +222,20 @@ class GoogleDriveService {
       }
 
       // Update database with folder information
-      await this.updateOpportunityWithFolder(opportunityUid, {
-        folderId: folder.id,
-        folderUrl: folder.webViewLink,
-        folderName: folder.name,
-        createdBy: linkedBy
-      });
+      try {
+        console.log(`📝 Updating database for opportunity ${opportunityUid}...`);
+        await this.updateOpportunityWithFolder(opportunityUid, {
+          folderId: folder.id,
+          folderUrl: folder.webViewLink,
+          folderName: folder.name,
+          createdBy: linkedBy
+        });
+        console.log(`✅ Database updated successfully`);
+      } catch (dbError) {
+        console.error('❌ Database update error:', dbError.message);
+        console.error('❌ Database error stack:', dbError.stack);
+        throw new Error(`Failed to update database: ${dbError.message}`);
+      }
 
       console.log(`✅ Linked folder: ${folder.name}`);
 
@@ -189,60 +248,54 @@ class GoogleDriveService {
 
     } catch (error) {
       console.error('❌ Failed to link folder:', error.message);
+      console.error('❌ Full error:', error);
       throw error;
     }
   }
 
   async unlinkFolder(opportunityUid, unlinkedBy = 'USER', deleteFolder = false) {
     try {
-      const client = await pool.connect();
-      
-      try {
-        // Get current folder information
-        const result = await client.query(
-          'SELECT google_drive_folder_id, google_drive_folder_name FROM opps_monitoring WHERE uid = $1',
-          [opportunityUid]
-        );
+      // Get current folder information
+      const result = await db.query(
+        'SELECT google_drive_folder_id, google_drive_folder_name FROM opps_monitoring WHERE uid = ?',
+        [opportunityUid]
+      );
 
-        if (result.rows.length === 0) {
-          throw new Error('Opportunity not found');
-        }
-
-        const folderId = result.rows[0].google_drive_folder_id;
-        const folderName = result.rows[0].google_drive_folder_name;
-
-        if (!folderId) {
-          throw new Error('No folder linked to this opportunity');
-        }
-
-        // Optionally delete the folder from Drive
-        if (deleteFolder && this.drive) {
-          try {
-            await this.drive.files.delete({ fileId: folderId });
-            console.log(`🗑️ Deleted folder from Drive: ${folderName}`);
-          } catch (driveError) {
-            console.warn(`⚠️ Could not delete folder from Drive: ${driveError.message}`);
-          }
-        }
-
-        // Clear folder information from database
-        await client.query(
-          `UPDATE opps_monitoring 
-           SET google_drive_folder_id = NULL,
-               google_drive_folder_url = NULL,
-               google_drive_folder_name = NULL,
-               drive_folder_created_by = $2
-           WHERE uid = $1`,
-          [opportunityUid, unlinkedBy]
-        );
-
-        console.log(`✅ Unlinked folder from opportunity: ${opportunityUid}`);
-
-        return { success: true, deleted: deleteFolder };
-
-      } finally {
-        client.release();
+      if (result.rows.length === 0) {
+        throw new Error('Opportunity not found');
       }
+
+      const folderId = result.rows[0].google_drive_folder_id;
+      const folderName = result.rows[0].google_drive_folder_name;
+
+      if (!folderId) {
+        throw new Error('No folder linked to this opportunity');
+      }
+
+      // Optionally delete the folder from Drive
+      if (deleteFolder && this.drive) {
+        try {
+          await this.drive.files.delete({ fileId: folderId });
+          console.log(`🗑️ Deleted folder from Drive: ${folderName}`);
+        } catch (driveError) {
+          console.warn(`⚠️ Could not delete folder from Drive: ${driveError.message}`);
+        }
+      }
+
+      // Clear folder information from database
+      await db.query(
+        db.convertSQL(`UPDATE opps_monitoring 
+         SET google_drive_folder_id = NULL,
+             google_drive_folder_url = NULL,
+             google_drive_folder_name = NULL,
+             drive_folder_created_by = ?
+         WHERE uid = ?`),
+        [unlinkedBy, opportunityUid]
+      );
+
+      console.log(`✅ Unlinked folder from opportunity: ${opportunityUid}`);
+
+      return { success: true, deleted: deleteFolder };
 
     } catch (error) {
       console.error('❌ Failed to unlink folder:', error.message);
@@ -344,17 +397,36 @@ class GoogleDriveService {
   }
 
   async updateOpportunityWithFolder(opportunityUid, folderData) {
-    const client = await pool.connect();
-    
     try {
-      await client.query(
-        `UPDATE opps_monitoring 
-         SET google_drive_folder_id = $1,
-             google_drive_folder_url = $2,
-             google_drive_folder_name = $3,
-             drive_folder_created_at = CURRENT_TIMESTAMP,
-             drive_folder_created_by = $4
-         WHERE uid = $5`,
+      console.log(`📝 Checking if opportunity ${opportunityUid} exists...`);
+      
+      // Check if opportunity exists first
+      const checkResult = await db.query(
+        'SELECT uid, project_code, project_name FROM opps_monitoring WHERE uid = ?',
+        [opportunityUid]
+      );
+
+      if (checkResult.rows.length === 0) {
+        console.error(`❌ Opportunity ${opportunityUid} not found in database`);
+        throw new Error(`Opportunity with UID ${opportunityUid} not found in database`);
+      }
+
+      const opp = checkResult.rows[0];
+      console.log(`✅ Opportunity found: ${opp.project_code} - ${opp.project_name}`);
+
+      // Update the opportunity with folder information
+      console.log(`📝 Updating opportunity with folder data...`);
+      console.log(`   Folder ID: ${folderData.folderId}`);
+      console.log(`   Folder Name: ${folderData.folderName}`);
+      
+      const updateResult = await db.query(
+        db.convertSQL(`UPDATE opps_monitoring 
+         SET google_drive_folder_id = ?,
+             google_drive_folder_url = ?,
+             google_drive_folder_name = ?,
+             drive_folder_created_at = datetime('now'),
+             drive_folder_created_by = ?
+         WHERE uid = ?`),
         [
           folderData.folderId,
           folderData.folderUrl,
@@ -364,13 +436,23 @@ class GoogleDriveService {
         ]
       );
 
-      console.log(`✅ Updated opportunity ${opportunityUid} with folder information`);
+      console.log(`📊 Update result: ${updateResult.rowCount} row(s) affected`);
+
+      if (updateResult.rowCount === 0) {
+        console.error(`❌ No rows were updated for opportunity ${opportunityUid}`);
+        throw new Error(`Failed to update opportunity ${opportunityUid} - no rows affected. The opportunity may have been deleted or the UID is incorrect.`);
+      }
+
+      console.log(`✅ Successfully updated opportunity ${opportunityUid} with folder information`);
 
     } catch (error) {
       console.error('❌ Failed to update opportunity with folder data:', error.message);
+      console.error('❌ Error type:', error.constructor.name);
+      console.error('❌ Full error:', error);
+      if (error.stack) {
+        console.error('❌ Stack trace:', error.stack);
+      }
       throw error;
-    } finally {
-      client.release();
     }
   }
 
@@ -394,10 +476,8 @@ class GoogleDriveService {
   }
 
   async listOpportunitiesWithFolders() {
-    const client = await pool.connect();
-    
     try {
-      const result = await client.query(`
+      const result = await db.query(`
         SELECT 
           uid,
           project_code,
@@ -418,8 +498,6 @@ class GoogleDriveService {
     } catch (error) {
       console.error('❌ Failed to list opportunities with folders:', error.message);
       throw error;
-    } finally {
-      client.release();
     }
   }
 
@@ -429,17 +507,57 @@ class GoogleDriveService {
         await this.initialize();
       }
 
-      await this.drive.files.get({
-        fileId: folderId,
-        fields: 'id'
+      // Clean the folder ID
+      const cleanFolderId = String(folderId).trim();
+      console.log(`[VALIDATE] Validating folder access for ID: "${cleanFolderId}" (length: ${cleanFolderId.length})`);
+
+      const response = await this.drive.files.get({
+        fileId: cleanFolderId,
+        fields: 'id, name, mimeType, permissions'
       });
 
-      return { valid: true };
+      console.log(`[VALIDATE] Folder found: ${response.data.name} (ID: ${response.data.id})`);
+
+      // Check if it's actually a folder
+      if (response.data.mimeType !== 'application/vnd.google-apps.folder') {
+        console.error(`[VALIDATE] ID is not a folder. MIME type: ${response.data.mimeType}`);
+        return {
+          valid: false,
+          error: 'The provided ID is not a folder'
+        };
+      }
+
+      return { 
+        valid: true,
+        folderName: response.data.name,
+        folderId: response.data.id
+      };
 
     } catch (error) {
+      console.error(`[VALIDATE] Folder access validation error for ID "${folderId}":`, error.message);
+      console.error(`[VALIDATE] Error code:`, error.code);
+      console.error(`[VALIDATE] Error details:`, error.errors);
+      console.error(`[VALIDATE] Full error:`, error);
+      
+      let errorMessage = error.message;
+      let errorCode = error.code;
+      
+      if (error.code === 404 || error.message.includes('File not found') || error.message.includes('not found')) {
+        errorMessage = `Folder not found. The folder ID "${folderId}" does not exist or the service account cannot access it.`;
+        errorCode = 404;
+      } else if (error.code === 403 || error.message.includes('insufficient authentication') || error.message.includes('permission') || error.message.includes('Access denied')) {
+        errorMessage = 'Access denied. The service account does not have access to this folder. Please share it with: tj-caballero@app-attachment.iam.gserviceaccount.com';
+        errorCode = 403;
+      } else if (error.message.includes('Invalid')) {
+        errorMessage = `Invalid folder ID format: "${folderId}". Please check the folder ID.`;
+      }
+      
       return { 
         valid: false, 
-        error: error.message.includes('File not found') ? 'Folder not found or access denied' : error.message 
+        error: errorMessage,
+        errorCode: errorCode,
+        errorDetails: error.errors,
+        folderIdUsed: folderId
       };
     }
   }
@@ -880,27 +998,19 @@ class GoogleDriveService {
       console.log(`🔄 Starting sync for proposal: ${proposalUid}`);
 
       // Get proposal info from database
-      const client = await pool.connect();
-      let proposal;
+      const result = await db.query(
+        'SELECT uid, google_drive_folder_id, google_drive_folder_name, project_code FROM opps_monitoring WHERE uid = ?',
+        [proposalUid]
+      );
+
+      if (result.rows.length === 0) {
+        throw new Error('Proposal not found');
+      }
+
+      const proposal = result.rows[0];
       
-      try {
-        const result = await client.query(
-          'SELECT uid, google_drive_folder_id, google_drive_folder_name, project_code FROM opps_monitoring WHERE uid = $1',
-          [proposalUid]
-        );
-
-        if (result.rows.length === 0) {
-          throw new Error('Proposal not found');
-        }
-
-        proposal = result.rows[0];
-        
-        if (!proposal.google_drive_folder_id) {
-          throw new Error('No Google Drive folder linked to this proposal');
-        }
-
-      } finally {
-        client.release();
+      if (!proposal.google_drive_folder_id) {
+        throw new Error('No Google Drive folder linked to this proposal');
       }
 
       // Find Calcsheet folder
