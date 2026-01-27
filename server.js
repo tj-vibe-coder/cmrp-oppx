@@ -4599,23 +4599,17 @@ app.get('/api/opportunities/:uid/drive-folder/search', authenticateToken, async 
 
   try {
     // Get opportunity data first
-    const client = await pool.connect();
     let opportunity;
-    
-    try {
-      const result = await client.query(
-        'SELECT uid, project_code, project_name, client, opp_status FROM opps_monitoring WHERE uid = $1',
-        [uid]
-      );
+    const result = await db.query(
+      'SELECT uid, project_code, project_name, client, opp_status FROM opps_monitoring WHERE uid = ?',
+      [uid]
+    );
 
-      if (result.rows.length === 0) {
-        return res.status(404).json({ error: 'Opportunity not found' });
-      }
-
-      opportunity = result.rows[0];
-    } finally {
-      client.release();
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Opportunity not found' });
     }
+
+    opportunity = result.rows[0];
 
     // Perform smart search
     const driveService = new GoogleDriveService();

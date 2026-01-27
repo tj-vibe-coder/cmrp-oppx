@@ -919,15 +919,47 @@ class GoogleDriveService {
 
       console.log(`⬇️ Downloading Excel file: ${fileName} (ID: ${fileId})`);
 
-      // Download the file
-      const response = await this.drive.files.get({
-        fileId: fileId,
-        alt: 'media'
-      }, {
-        responseType: 'arraybuffer'
+      const maxBytes = Number(process.env.MAX_EXCEL_DOWNLOAD_BYTES || 50 * 1024 * 1024); // default 50MB
+      if (!Number.isFinite(maxBytes) || maxBytes <= 0) {
+        throw new Error(`Invalid MAX_EXCEL_DOWNLOAD_BYTES: ${process.env.MAX_EXCEL_DOWNLOAD_BYTES}`);
+      }
+
+      // Download the file as a stream to avoid OOM/crashes (ECONNRESET)
+      const response = await this.drive.files.get(
+        {
+          fileId: fileId,
+          alt: 'media'
+        },
+        {
+          responseType: 'stream'
+        }
+      );
+
+      const stream = response.data;
+      const buffer = await new Promise((resolve, reject) => {
+        const chunks = [];
+        let total = 0;
+
+        stream.on('data', (chunk) => {
+          const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+          total += buf.length;
+
+          if (total > maxBytes) {
+            const err = new Error(
+              `Excel download aborted: file too large (${total} bytes). Limit is ${maxBytes} bytes.`
+            );
+            // Destroy stream to stop downloading
+            stream.destroy(err);
+            return;
+          }
+
+          chunks.push(buf);
+        });
+
+        stream.on('end', () => resolve(Buffer.concat(chunks, total)));
+        stream.on('error', (err) => reject(err));
       });
 
-      const buffer = Buffer.from(response.data);
       console.log(`✅ Downloaded Excel file: ${fileName} (${buffer.length} bytes)`);
       
       // Check if the buffer looks like a valid file
@@ -1052,6 +1084,16 @@ class GoogleDriveService {
       
       const latestFile = filesWithRevisions[0];
       console.log(`📊 Selected file: ${latestFile.name} (Rev: ${latestFile.revisionNumber}, PCS: ${latestFile.isPCS ? 'Yes' : 'No'}, Modified: ${latestFile.modifiedTime})`);
+
+      // Guardrail: avoid crashing the server by downloading huge files
+      const maxBytes = Number(process.env.MAX_EXCEL_DOWNLOAD_BYTES || 50 * 1024 * 1024); // default 50MB
+      const declaredSize = latestFile.size ? Number(latestFile.size) : null;
+      if (declaredSize && Number.isFinite(declaredSize) && declaredSize > maxBytes) {
+        throw new Error(
+          `Excel file is too large to sync (${declaredSize} bytes). Limit is ${maxBytes} bytes. ` +
+          `Ask an admin to increase MAX_EXCEL_DOWNLOAD_BYTES if this is expected.`
+        );
+      }
       
       if (filesWithRevisions.length > 1) {
         const pcsFiles = filesWithRevisions.filter(f => f.isPCS);
