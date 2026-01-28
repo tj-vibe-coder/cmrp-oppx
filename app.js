@@ -8801,6 +8801,25 @@ async function sendHeartbeat() {
         
         console.log('[HEARTBEAT] Response status:', response.status);
         
+        // Handle 403 (Invalid/expired token) - redirect to login
+        if (response.status === 403) {
+            const responseText = await response.text();
+            let errorData;
+            try {
+                errorData = JSON.parse(responseText);
+            } catch (e) {
+                errorData = { error: 'Invalid or expired token' };
+            }
+            
+            console.warn('[HEARTBEAT] Token invalid/expired, redirecting to login:', errorData.error);
+            localStorage.removeItem('authToken');
+            // Redirect to login after a short delay
+            setTimeout(() => {
+                window.location.href = 'login.html';
+            }, 1000);
+            return;
+        }
+        
         // Handle empty response
         const responseText = await response.text();
         if (!responseText) {
@@ -8824,10 +8843,27 @@ async function sendHeartbeat() {
                 updateOnlineUsersDisplay();
             }
         } else {
+            // Check if error is about invalid token
+            if (data.error && (data.error.includes('token') || data.error.includes('Invalid') || data.error.includes('expired'))) {
+                console.warn('[HEARTBEAT] Token error detected, clearing token and redirecting:', data.error);
+                localStorage.removeItem('authToken');
+                setTimeout(() => {
+                    window.location.href = 'login.html';
+                }, 1000);
+                return;
+            }
             throw new Error(data.error || 'Unknown error in heartbeat response');
         }
     } catch (error) {
         console.error('[HEARTBEAT] Error sending heartbeat:', error);
+        // If error message indicates token issue, redirect to login
+        if (error.message && (error.message.includes('token') || error.message.includes('403') || error.message.includes('Invalid'))) {
+            console.warn('[HEARTBEAT] Token-related error, redirecting to login');
+            localStorage.removeItem('authToken');
+            setTimeout(() => {
+                window.location.href = 'login.html';
+            }, 1000);
+        }
     }
 }
 

@@ -88,6 +88,15 @@ class NotificationManager {
             });
             
             if (!response.ok) {
+                // Handle 403 (invalid/expired token) - redirect to login
+                if (response.status === 403) {
+                    console.warn('[NOTIFICATIONS] Token invalid/expired (403), redirecting to login');
+                    localStorage.removeItem('authToken');
+                    setTimeout(() => {
+                        window.location.href = 'login.html';
+                    }, 1000);
+                    return;
+                }
                 // Don't throw for 500/404 - just log and continue
                 if (response.status >= 500) {
                     console.warn('[NOTIFICATIONS] Server error loading notifications, continuing without notifications');

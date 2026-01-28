@@ -46,6 +46,21 @@ class SharedNavigation {
         } : null;
     }
 
+    /**
+     * Handle API response errors, especially 403 (invalid/expired token)
+     */
+    handleApiError(response, errorMessage) {
+        if (response.status === 403) {
+            console.warn('[SHARED-NAV] Token invalid/expired (403), redirecting to login');
+            localStorage.removeItem('authToken');
+            setTimeout(() => {
+                window.location.href = 'login.html';
+            }, 1000);
+            return true; // Indicates token error was handled
+        }
+        return false; // Not a token error
+    }
+
     async loadComponent(url) {
         try {
             const response = await fetch(url);
@@ -462,12 +477,16 @@ class SharedNavigation {
             });
             
             if (!response.ok) {
+                // Handle 403 (invalid/expired token)
+                if (this.handleApiError(response, 'Heartbeat failed')) {
+                    return; // Token error handled, exit early
+                }
                 // If heartbeat endpoint doesn't exist (404), just log and continue
                 if (response.status === 404) {
                     console.log('[SHARED-NAV] Heartbeat endpoint not available (404), continuing without heartbeat');
                     return;
                 }
-                
+
                 const errorText = await response.text();
                 throw new Error(`Heartbeat failed: ${response.status} - ${errorText}`);
             }
@@ -525,9 +544,13 @@ class SharedNavigation {
             });
             
             if (!response.ok) {
+                // Handle 403 (invalid/expired token)
+                if (this.handleApiError(response, 'Failed to fetch online users')) {
+                    return; // Token error handled, exit early
+                }
                 // If online users endpoint doesn't exist (404), just log and continue
                 if (response.status === 404) {
-                            return;
+                    return;
                 }
                 throw new Error(`Failed to fetch online users: ${response.status}`);
             }
@@ -921,6 +944,10 @@ class SharedNavigation {
             });
 
             if (!response.ok) {
+                // Handle 403 (invalid/expired token)
+                if (this.handleApiError(response, 'Failed to load calendar status')) {
+                    return; // Token error handled, exit early
+                }
                 throw new Error(`Failed to load calendar status: ${response.status}`);
             }
 
