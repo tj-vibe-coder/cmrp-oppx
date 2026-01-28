@@ -430,7 +430,12 @@ async function initializeAppWithToken(token) {
 
         if (!response.ok) {
             if (response.status === 401 || response.status === 403) {
-                throw new Error('Authentication failed. Please log in again.');
+                console.warn('[APP-INIT] Token invalid/expired (403), redirecting to login');
+                localStorage.removeItem('authToken');
+                setTimeout(() => {
+                    window.location.href = 'login.html';
+                }, 1000);
+                throw new Error('Authentication failed. Redirecting to login...');
             }
             throw new Error(`Failed to fetch opportunities: ${response.status} ${response.statusText}`);
         }
