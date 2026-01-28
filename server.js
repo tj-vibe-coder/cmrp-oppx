@@ -99,18 +99,43 @@ app.get('/api/cors-test', (req, res) => {
 // Database diagnostic endpoints
 app.get('/api/db-test', async (req, res) => {
   try {
+    const dbType = db.getDBType();
     const result = await db.query('SELECT 1 as test, datetime("now") as current_time');
+    
+    // Parse connection string for diagnostics (without exposing sensitive data)
+    let connectionInfo = {};
+    if (process.env.DATABASE_URL) {
+      const dbUrl = process.env.DATABASE_URL;
+      if (dbUrl.startsWith('sqlitecloud://')) {
+        const match = dbUrl.match(/sqlitecloud:\/\/([^\/]+)\/([^?]+)/);
+        if (match) {
+          const [, hostPort, database] = match;
+          const [host] = hostPort.split(':');
+          connectionInfo = {
+            type: 'SQLiteCloud',
+            host: host,
+            database: database,
+            hasApiKey: dbUrl.includes('apikey=')
+          };
+        }
+      } else {
+        connectionInfo = { type: dbType, configured: true };
+      }
+    }
+    
     res.json({ 
       success: true, 
-      dbType: db.getDBType(),
+      dbType: dbType,
       test: result.rows[0],
-      databaseUrl: process.env.DATABASE_URL ? 'Set (hidden)' : 'Not Set'
+      connection: connectionInfo,
+      databaseUrl: process.env.DATABASE_URL ? 'Set' : 'Not Set'
     });
   } catch (error) {
     res.status(500).json({ 
       success: false, 
       error: error.message,
       dbType: db.getDBType(),
+      databaseUrl: process.env.DATABASE_URL ? 'Set' : 'Not Set',
       stack: error.stack?.substring(0, 500)
     });
   }

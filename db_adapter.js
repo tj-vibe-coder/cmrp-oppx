@@ -23,11 +23,45 @@ async function initDatabase() {
 
     if (databaseUrl.startsWith('sqlitecloud://')) {
         // SQLiteCloud connection
+        console.log('[DB-ADAPTER] Initializing SQLiteCloud connection...');
+        console.log('[DB-ADAPTER] Connection string format:', databaseUrl.substring(0, 50) + '...');
+        
         const { Database } = require('@sqlitecloud/drivers');
-        db = new Database(databaseUrl);
-        await db.sql`PRAGMA foreign_keys = ON`;
-        dbType = 'sqlitecloud';
-        console.log('✅ Connected to SQLiteCloud');
+        try {
+            db = new Database(databaseUrl);
+            console.log('[DB-ADAPTER] SQLiteCloud Database object created');
+            
+            // Test connection with a simple query
+            const testResult = await db.sql('SELECT 1 as test');
+            console.log('[DB-ADAPTER] SQLiteCloud connection test passed:', testResult);
+            
+            await db.sql`PRAGMA foreign_keys = ON`;
+            dbType = 'sqlitecloud';
+            console.log('✅ Connected to SQLiteCloud');
+            
+            // Log connection details (without exposing sensitive info)
+            try {
+                // Parse connection string manually (SQLiteCloud URLs aren't standard HTTP URLs)
+                const match = databaseUrl.match(/sqlitecloud:\/\/([^\/]+)\/([^?]+)(\?.*)?/);
+                if (match) {
+                    const [, hostPort, database, queryString] = match;
+                    const [host, port] = hostPort.split(':');
+                    const hasApiKey = queryString && queryString.includes('apikey=');
+                    console.log('[DB-ADAPTER] SQLiteCloud connection details:', {
+                        host: host,
+                        port: port || '8860',
+                        database: database,
+                        hasApiKey: hasApiKey
+                    });
+                }
+            } catch (parseError) {
+                console.log('[DB-ADAPTER] Could not parse connection string details');
+            }
+        } catch (initError) {
+            console.error('[DB-ADAPTER] ❌ SQLiteCloud initialization error:', initError.message);
+            console.error('[DB-ADAPTER] Error stack:', initError.stack?.substring(0, 500));
+            throw initError;
+        }
     } else if (databaseUrl.startsWith('sqlite://') || databaseUrl.startsWith('sqlite:')) {
         // Local SQLite file connection
         const Database = require('better-sqlite3');
