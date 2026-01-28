@@ -29,12 +29,25 @@ document.addEventListener('DOMContentLoaded', async function() {
     sharedNavigation.forceRefreshTheme();
     
     // Initialize dashboard after navigation is ready
-    if (requireAuth()) {
+    // Check if requireAuth function exists (it's defined in executive_dashboard.js)
+    if (typeof requireAuth === 'function' && requireAuth()) {
         await fetchDashboardData();
         setupFilters();
         setupPeriodControls();
         setupTableControls();
         setupEventHandlers();
+    } else if (typeof requireAuth !== 'function') {
+        // If requireAuth is not available, check token directly
+        const token = localStorage.getItem('authToken');
+        if (token) {
+            await fetchDashboardData();
+            setupFilters();
+            setupPeriodControls();
+            setupTableControls();
+            setupEventHandlers();
+        } else {
+            window.location.href = 'login.html';
+        }
     }
     
     console.log('[EXECUTIVE-DASHBOARD] Initialization complete');

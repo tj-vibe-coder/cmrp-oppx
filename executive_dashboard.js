@@ -1088,15 +1088,15 @@ function renderHistoricalChart(data) {
                     monthlyData[monthKey].submittedCount++;
                     monthlyData[monthKey].submittedAmount += parseFloat(item.final_amt) || 0;
                 }
-                } catch (error) {
-                    // Invalid date - skip this item silently
-                    console.warn('[EXECUTIVE] Skipping item with invalid date_received:', item.date_received, error.message);
-                }
                 
-                if (['op100', 'op90', 'op60', 'op30'].includes(item.opp_status?.toLowerCase())) {
-                    monthlyData[monthKey].pipelineCount++;
-                    monthlyData[monthKey].pipelineAmount += parseFloat(item.final_amt) || 0;
+                    if (['op100', 'op90', 'op60', 'op30'].includes(item.opp_status?.toLowerCase())) {
+                        monthlyData[monthKey].pipelineCount++;
+                        monthlyData[monthKey].pipelineAmount += parseFloat(item.final_amt) || 0;
+                    }
                 }
+            } catch (error) {
+                // Invalid date - skip this item silently
+                console.warn('[EXECUTIVE] Skipping item with invalid date_received:', item.date_received, error.message);
             }
         }
     });
