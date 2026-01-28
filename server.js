@@ -3533,26 +3533,31 @@ app.get('/update_password.html', (req, res) => {
 app.get('/api/users', authenticateToken, requireAdmin, async (req, res) => {
   try {
     console.log('[GET /api/users] Fetching users from database...');
+    console.log('[GET /api/users] Database type:', db.getDBType());
     
     // Try to query users table directly - if it fails, we'll catch the error
     let result;
     try {
+      // Try to query users table - if it fails, we'll catch and handle the error
       result = await db.query('SELECT id, email, name, is_verified, roles, account_type, last_login_at FROM users ORDER BY email ASC');
     } catch (queryError) {
       console.error('[GET /api/users] Database query error:', queryError);
       console.error('[GET /api/users] Error code:', queryError.code);
       console.error('[GET /api/users] Error message:', queryError.message);
+      console.error('[GET /api/users] Error stack:', queryError.stack?.substring(0, 500));
       
       // Check if it's a "table doesn't exist" error
-      if (queryError.message && (
-        queryError.message.includes('no such table') || 
-        queryError.message.includes('does not exist') ||
-        queryError.code === 'SQLITE_ERROR'
-      )) {
+      const errorMsg = queryError.message?.toLowerCase() || '';
+      if (errorMsg.includes('no such table') || 
+          errorMsg.includes('does not exist') ||
+          errorMsg.includes('table') && errorMsg.includes('not found') ||
+          queryError.code === 'SQLITE_ERROR' ||
+          queryError.code === '42P01') {
         return res.status(500).json({ 
           error: 'Failed to fetch users.',
-          details: 'Users table does not exist in database',
-          code: queryError.code
+          details: 'Users table does not exist in database. Please run migrations.',
+          code: queryError.code || 'TABLE_NOT_FOUND',
+          message: queryError.message
         });
       }
       
