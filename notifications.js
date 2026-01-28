@@ -83,10 +83,16 @@ class NotificationManager {
                     'Authorization': `Bearer ${token}`,
                     'Content-Type': 'application/json'
                 },
-                credentials: 'include'
+                credentials: 'include',
+                signal: AbortSignal.timeout(5000) // 5 second timeout
             });
             
             if (!response.ok) {
+                // Don't throw for 500/404 - just log and continue
+                if (response.status >= 500) {
+                    console.warn('[NOTIFICATIONS] Server error loading notifications, continuing without notifications');
+                    return;
+                }
                 throw new Error(`Failed to load notifications: ${response.status}`);
             }
             
@@ -96,7 +102,28 @@ class NotificationManager {
             this.renderNotifications();
             
         } catch (error) {
-            console.error('Error loading notifications:', error);
+            // Silently handle network/timeout errors - don't spam console
+            if (error.name === 'TypeError' && error.message === 'Failed to fetch') {
+                // Server might not be running or network issue - non-critical, don't log
+                // Initialize with empty notifications so UI doesn't break
+                this.notifications = [];
+                this.unreadCount = 0;
+                this.updateBadge();
+                return;
+            } else if (error.name === 'AbortError' || error.message?.includes('timeout') || error.message?.includes('timed out')) {
+                // Request timeout - non-critical, don't log
+                // Initialize with empty notifications so UI doesn't break
+                this.notifications = [];
+                this.unreadCount = 0;
+                this.updateBadge();
+                return;
+            }
+            // Only log unexpected errors (not network/timeout issues)
+            console.error('[NOTIFICATIONS] Unexpected error loading notifications:', error.message);
+            // Initialize with empty notifications so UI doesn't break
+            this.notifications = [];
+            this.unreadCount = 0;
+            this.updateBadge();
         }
     }
     
@@ -110,17 +137,30 @@ class NotificationManager {
                     'Authorization': `Bearer ${token}`,
                     'Content-Type': 'application/json'
                 },
-                credentials: 'include'
+                credentials: 'include',
+                signal: AbortSignal.timeout(3000) // 3 second timeout
             });
             
-            if (!response.ok) return;
+            if (!response.ok) {
+                // Don't log errors for server issues - just return
+                return;
+            }
             
             const data = await response.json();
             this.unreadCount = data.count || 0;
             this.updateBadge();
             
         } catch (error) {
-            console.error('Error updating unread count:', error);
+            // Silently handle network/timeout errors - don't spam console
+            if (error.name === 'TypeError' && error.message === 'Failed to fetch') {
+                // Server might not be running - non-critical, don't log
+                return;
+            } else if (error.name === 'AbortError' || error.message?.includes('timeout') || error.message?.includes('timed out')) {
+                // Timeout - non-critical, don't log
+                return;
+            }
+            // Only log unexpected errors (not network/timeout issues)
+            console.warn('[NOTIFICATIONS] Unexpected error updating unread count:', error.message);
         }
     }
     
@@ -351,8 +391,12 @@ class NotificationManager {
     
     startPeriodicRefresh() {
         // Refresh unread count every 30 seconds
+        // Only start if we have a valid connection (check once first)
         this.refreshInterval = setInterval(() => {
-            this.updateUnreadCount();
+            // Silently update - errors are handled internally
+            this.updateUnreadCount().catch(() => {
+                // Silently ignore periodic refresh errors
+            });
         }, 30000);
     }
     

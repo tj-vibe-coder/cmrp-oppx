@@ -96,7 +96,17 @@ async function query(sql, params = []) {
     if (dbType === 'sqlitecloud') {
         // SQLiteCloud query
         try {
-            const result = await db.sql(sql, ...params);
+            let result;
+            
+            // SQLiteCloud supports both template literals and function calls
+            // For queries without parameters, use the function call syntax
+            if (params.length === 0) {
+                // No parameters - use direct SQL string
+                result = await db.sql(sql);
+            } else {
+                // Has parameters - use function call with spread
+                result = await db.sql(sql, ...params);
+            }
 
             // Normalize result format to match PostgreSQL
             if (Array.isArray(result)) {
@@ -106,13 +116,28 @@ async function query(sql, params = []) {
                 };
             }
 
+            // Handle result object (for INSERT/UPDATE/DELETE)
+            if (result && typeof result === 'object') {
+                return {
+                    rows: [],
+                    rowCount: result.changes || result.rowCount || 0,
+                    lastID: result.lastID || result.lastInsertRowid
+                };
+            }
+
             return {
                 rows: [],
-                rowCount: result.changes || 0,
-                lastID: result.lastID
+                rowCount: 0
             };
         } catch (error) {
-            console.error('SQLiteCloud query error:', error);
+            console.error('[DB-ADAPTER] SQLiteCloud query error:', error);
+            console.error('[DB-ADAPTER] SQL:', sql);
+            console.error('[DB-ADAPTER] Params:', params);
+            console.error('[DB-ADAPTER] Error details:', {
+                message: error.message,
+                code: error.code,
+                stack: error.stack
+            });
             throw error;
         }
     } else if (dbType === 'sqlite') {

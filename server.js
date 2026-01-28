@@ -2532,7 +2532,13 @@ app.post('/api/opportunities', authenticateToken,
       const cleanedValue = typeof value === 'string' ? value.replace(/[₱$,]/g, '').trim() : value;
       return !isNaN(parseFloat(cleanedValue)) && isFinite(cleanedValue);
     }),
-    body('date_awarded_lost').optional().isISO8601().toDate(),
+    body('date_awarded_lost').optional().custom((value) => {
+      // Allow null, empty string, or valid date formats
+      if (!value || value === '' || value === null) return true;
+      // Try to parse as date - if it fails, validation will fail
+      const parsed = robustParseDate(value);
+      return parsed !== null || value === null || value === '';
+    }).withMessage('date_awarded_lost must be a valid date or empty'),
     // Add more fields as needed
   ],
   async (req, res) => {
@@ -2883,7 +2889,13 @@ app.put('/api/opportunities/:uid', authenticateToken,
       const cleanedValue = typeof value === 'string' ? value.replace(/[₱$,]/g, '').trim() : value;
       return !isNaN(parseFloat(cleanedValue)) && isFinite(cleanedValue);
     }),
-    body('date_awarded_lost').optional().isISO8601().toDate(),
+    body('date_awarded_lost').optional().custom((value) => {
+      // Allow null, empty string, or valid date formats
+      if (!value || value === '' || value === null) return true;
+      // Try to parse as date - if it fails, validation will fail
+      const parsed = robustParseDate(value);
+      return parsed !== null || value === null || value === '';
+    }).withMessage('date_awarded_lost must be a valid date or empty'),
     // Add more fields as needed
   ],
   async (req, res) => {
@@ -2906,7 +2918,28 @@ app.put('/api/opportunities/:uid', authenticateToken,
     const changed_by = updateData.changed_by || null;
     delete updateData.changed_by;
     delete updateData.uid; delete updateData.UID; delete updateData.Uid;
-    updateData = Object.fromEntries(Object.entries(updateData).map(([k, v]) => [k, (typeof v === 'string' && v.trim() === '') ? null : v]));
+    updateData = Object.fromEntries(Object.entries(updateData).map(([k, v]) => {
+        // Convert empty strings to null
+        if (typeof v === 'string' && v.trim() === '') {
+            return [k, null];
+        }
+        // Normalize date_awarded_lost to ISO format if it's a valid date
+        if (k === 'date_awarded_lost' && v) {
+            const parsedDate = robustParseDate(v);
+            if (parsedDate) {
+                // Convert to YYYY-MM-DD format
+                const year = parsedDate.getUTCFullYear();
+                const month = String(parsedDate.getUTCMonth() + 1).padStart(2, '0');
+                const day = String(parsedDate.getUTCDate()).padStart(2, '0');
+                return [k, `${year}-${month}-${day}`];
+            } else {
+                // Invalid date - set to null instead of saving invalid value
+                console.warn(`[PUT /api/opportunities/${uid}] Invalid date_awarded_lost value "${v}", setting to null`);
+                return [k, null];
+            }
+        }
+        return [k, v];
+    }));
     console.log(`[PUT /api/opportunities/${uid}] Processed updateData:`, JSON.stringify(updateData, null, 2));
 
     if (!uid) return res.status(400).json({ error: 'UID is required.' });
@@ -2964,6 +2997,26 @@ app.put('/api/opportunities/:uid', authenticateToken,
         console.log(`[PUT /api/opportunities/${uid}] Previous Snapshot (for rev ${oldRevNumber}):`, JSON.stringify(prevSnapshot, null, 2));
 
         // 4. Update Main Table (SQLite doesn't support RETURNING, so fetch separately)
+        // Check if status is changing to OP100 (awarded) - reset sync flag for new awards
+        const oldOppStatus = currentOpp['opp_status'] || '';
+        const newOppStatus = updateData['opp_status'] || oldOppStatus;
+        const isBecomingAwarded = (oldOppStatus?.toUpperCase() !== 'OP100' && newOppStatus?.toUpperCase() === 'OP100');
+        
+        // If becoming awarded, reset sync flag so other app can fetch it
+        if (isBecomingAwarded) {
+          console.log(`[PUT /api/opportunities/${uid}] 🎉 Project became awarded (OP100) - resetting sync flag`);
+          // Check if column exists before trying to update it
+          try {
+            const colCheck = await query(`PRAGMA table_info(opps_monitoring)`);
+            const hasSyncColumn = colCheck.rows.some(col => col.name === 'synced_to_other_app');
+            if (hasSyncColumn) {
+              updateData['synced_to_other_app'] = 0; // Reset sync flag for new award
+            }
+          } catch (colError) {
+            console.log(`[PUT /api/opportunities/${uid}] Could not check for synced_to_other_app column: ${colError.message}`);
+          }
+        }
+        
         const setClause = keysToUpdate.map((key, idx) => `"${key}" = ?`).join(', ');
         const values = keysToUpdate.map(key => updateData[key]);
         values.push(uid);
@@ -3174,6 +3227,138 @@ app.get('/api/opportunities/:uid/revisions', authenticateToken, async (req, res)
     }
 });
 
+// GET Awarded Projects (OP100) - For other app to fetch
+// This endpoint can be called by your other app to get newly awarded projects
+app.get('/api/awarded-projects', authenticateToken, async (req, res) => {
+    try {
+        const { synced_only = 'false', limit = 100 } = req.query;
+        const onlyUnsynced = synced_only === 'false' || synced_only === '0';
+        
+        console.log(`[GET /api/awarded-projects] Fetching awarded projects (un synced only: ${onlyUnsynced}, limit: ${limit})`);
+        
+        // Check if synced_to_other_app column exists
+        let hasSyncColumn = false;
+        try {
+            const colCheck = await db.query(`PRAGMA table_info(opps_monitoring)`);
+            hasSyncColumn = colCheck.rows.some(col => col.name === 'synced_to_other_app');
+        } catch (e) {
+            console.log(`[GET /api/awarded-projects] Could not check for synced_to_other_app column: ${e.message}`);
+        }
+        
+        let query, params;
+        if (onlyUnsynced && hasSyncColumn) {
+            // Get only projects that haven't been synced yet (synced_to_other_app = 0 or NULL)
+            query = `
+                SELECT 
+                    uid, project_code, project_name, client, account_mgr, pic, bom,
+                    final_amt, margin, date_awarded_lost, opp_status, status,
+                    submitted_date, forecast_date, google_drive_folder_id,
+                    google_drive_folder_url, google_drive_folder_name,
+                    encoded_date, rev, remarks_comments
+                FROM opps_monitoring
+                WHERE UPPER(opp_status) = 'OP100'
+                  AND (synced_to_other_app IS NULL OR synced_to_other_app = 0)
+                ORDER BY date_awarded_lost DESC, project_code DESC
+                LIMIT ?
+            `;
+            params = [parseInt(limit) || 100];
+        } else {
+            // Get all awarded projects (or all if sync column doesn't exist)
+            const syncColumnSelect = hasSyncColumn ? ', synced_to_other_app' : '';
+            query = `
+                SELECT 
+                    uid, project_code, project_name, client, account_mgr, pic, bom,
+                    final_amt, margin, date_awarded_lost, opp_status, status,
+                    submitted_date, forecast_date, google_drive_folder_id,
+                    google_drive_folder_url, google_drive_folder_name,
+                    encoded_date, rev, remarks_comments${syncColumnSelect}
+                FROM opps_monitoring
+                WHERE UPPER(opp_status) = 'OP100'
+                ORDER BY date_awarded_lost DESC, project_code DESC
+                LIMIT ?
+            `;
+            params = [parseInt(limit) || 100];
+        }
+        
+        const result = await db.query(query, params);
+        
+        console.log(`[GET /api/awarded-projects] Found ${result.rows.length} awarded projects`);
+        
+        res.json({
+            success: true,
+            count: result.rows.length,
+            projects: result.rows
+        });
+        
+    } catch (error) {
+        console.error(`[GET /api/awarded-projects] Error:`, error);
+        res.status(500).json({ 
+            success: false,
+            error: 'Failed to fetch awarded projects',
+            message: error.message 
+        });
+    }
+});
+
+// POST Mark awarded projects as synced (for other app to call after fetching)
+app.post('/api/awarded-projects/mark-synced', authenticateToken, async (req, res) => {
+    try {
+        const { uids } = req.body; // Array of UIDs to mark as synced
+        
+        if (!Array.isArray(uids) || uids.length === 0) {
+            return res.status(400).json({ 
+                success: false,
+                error: 'uids array is required' 
+            });
+        }
+        
+        console.log(`[POST /api/awarded-projects/mark-synced] Marking ${uids.length} projects as synced`);
+        
+        // Check if synced_to_other_app column exists
+        let hasSyncColumn = false;
+        try {
+            const colCheck = await db.query(`PRAGMA table_info(opps_monitoring)`);
+            hasSyncColumn = colCheck.rows.some(col => col.name === 'synced_to_other_app');
+        } catch (e) {
+            console.log(`[POST /api/awarded-projects/mark-synced] Could not check for synced_to_other_app column: ${e.message}`);
+        }
+        
+        if (!hasSyncColumn) {
+            return res.status(400).json({ 
+                success: false,
+                error: 'synced_to_other_app column does not exist. Please run migration 014_add_awarded_projects_sync.sql first.'
+            });
+        }
+        
+        // Mark each project as synced
+        const placeholders = uids.map(() => '?').join(', ');
+        const updateQuery = `
+            UPDATE opps_monitoring 
+            SET synced_to_other_app = 1 
+            WHERE uid IN (${placeholders}) 
+              AND UPPER(opp_status) = 'OP100'
+        `;
+        
+        const result = await db.query(updateQuery, uids);
+        
+        console.log(`[POST /api/awarded-projects/mark-synced] Updated ${result.rowCount} projects`);
+        
+        res.json({
+            success: true,
+            updated: result.rowCount,
+            message: `Marked ${result.rowCount} awarded project(s) as synced`
+        });
+        
+    } catch (error) {
+        console.error(`[POST /api/awarded-projects/mark-synced] Error:`, error);
+        res.status(500).json({ 
+            success: false,
+            error: 'Failed to mark projects as synced',
+            message: error.message 
+        });
+    }
+});
+
 // --- Static File Serving & Server Start ---
 app.use(express.static(__dirname));
 
@@ -3201,22 +3386,90 @@ app.get('/update_password.html', (req, res) => {
 // GET all users
 app.get('/api/users', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const result = await db.query('SELECT id, email, name, is_verified, roles, account_type, last_login_at FROM users ORDER BY email ASC');
-    const users = result.rows.map(u => ({
-      _id: u.id,
-      id: u.id, // Add id field for frontend compatibility
-      username: u.name, // Map 'name' to 'username' for frontend compatibility
-      name: u.name, // Also include name field
-      email: u.email,
-      roles: typeof u.roles === 'string' ? JSON.parse(u.roles) : (Array.isArray(u.roles) ? u.roles : []), // Multi-role support - parse JSON string
-      accountType: u.account_type || 'User',
-      is_verified: u.is_verified,
-      lastLoginAt: u.last_login_at
-    }));
+    console.log('[GET /api/users] Fetching users from database...');
+    
+    // Try to query users table directly - if it fails, we'll catch the error
+    let result;
+    try {
+      result = await db.query('SELECT id, email, name, is_verified, roles, account_type, last_login_at FROM users ORDER BY email ASC');
+    } catch (queryError) {
+      console.error('[GET /api/users] Database query error:', queryError);
+      console.error('[GET /api/users] Error code:', queryError.code);
+      console.error('[GET /api/users] Error message:', queryError.message);
+      
+      // Check if it's a "table doesn't exist" error
+      if (queryError.message && (
+        queryError.message.includes('no such table') || 
+        queryError.message.includes('does not exist') ||
+        queryError.code === 'SQLITE_ERROR'
+      )) {
+        return res.status(500).json({ 
+          error: 'Failed to fetch users.',
+          details: 'Users table does not exist in database',
+          code: queryError.code
+        });
+      }
+      
+      // Re-throw other errors
+      throw queryError;
+    }
+    console.log(`[GET /api/users] Found ${result.rows.length} users`);
+    
+    const users = result.rows.map(u => {
+      try {
+        // Parse roles safely
+        let roles = [];
+        if (u.roles) {
+          if (typeof u.roles === 'string') {
+            try {
+              roles = JSON.parse(u.roles);
+            } catch (e) {
+              // If JSON parse fails, try splitting by comma or treating as single role
+              roles = u.roles.includes(',') ? u.roles.split(',').map(r => r.trim()) : [u.roles];
+            }
+          } else if (Array.isArray(u.roles)) {
+            roles = u.roles;
+          }
+        }
+        
+        return {
+          _id: u.id,
+          id: u.id,
+          username: u.name,
+          name: u.name,
+          email: u.email,
+          roles: roles,
+          accountType: u.account_type || 'User',
+          is_verified: u.is_verified || false,
+          lastLoginAt: u.last_login_at || null
+        };
+      } catch (mapError) {
+        console.error('[GET /api/users] Error mapping user:', u.id, mapError);
+        // Return user with safe defaults
+        return {
+          _id: u.id,
+          id: u.id,
+          username: u.name || '',
+          name: u.name || '',
+          email: u.email || '',
+          roles: [],
+          accountType: u.account_type || 'User',
+          is_verified: u.is_verified || false,
+          lastLoginAt: u.last_login_at || null
+        };
+      }
+    });
+    
     res.json(users);
   } catch (err) {
-    console.error('Error fetching users:', err);
-    res.status(500).json({ error: 'Failed to fetch users.' });
+    console.error('[GET /api/users] Error fetching users:', err);
+    console.error('[GET /api/users] Error stack:', err.stack);
+    console.error('[GET /api/users] Error code:', err.code);
+    res.status(500).json({ 
+      error: 'Failed to fetch users.',
+      details: err.message,
+      code: err.code
+    });
   }
 });
 

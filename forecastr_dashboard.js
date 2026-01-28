@@ -14,6 +14,7 @@ let showQuarters = { Q1: true, Q2: true, Q3: true, Q4: true };
 let currentSolutionFilter = 'all';
 let currentAccountMgrFilter = 'all';
 let currentClientFilter = 'all';
+let currentYearFilter = 'all'; // Year filter for forecast trends
 
 // Chart display state
 let isMonthlyView = true;
@@ -198,6 +199,20 @@ function renderForecastDashboard(data, statusFilter = 'all') {
         if (currentClientFilter !== 'all' && project.client !== currentClientFilter) {
             return false;
         }
+        // Apply Year filter (based on forecast date/month)
+        if (currentYearFilter !== 'all') {
+            let year = null;
+            if (project.forecast_date) {
+                const d = new Date(project.forecast_date);
+                if (!isNaN(d)) year = d.getFullYear();
+            } else if (project.forecastMonth) {
+                const d = new Date(project.forecastMonth + ' 1');
+                if (!isNaN(d)) year = d.getFullYear();
+            }
+            if (year && year.toString() !== currentYearFilter.toString()) {
+                return false;
+            }
+        }
         return true;
     });
 
@@ -215,7 +230,7 @@ function renderForecastDashboard(data, statusFilter = 'all') {
     let monthlySummary = [];
     
     if (statusFilter === 'all' && currentSolutionFilter === 'all' && currentAccountMgrFilter === 'all' && currentClientFilter === 'all') {
-        // No filters applied, use server data directly
+        // No filters applied (except possibly year) - start from server data
         monthlySummary = data.forecastMonthlySummary || [];
     } else {
         // Filters applied, recalculate from filtered projects
@@ -246,6 +261,25 @@ function renderForecastDashboard(data, statusFilter = 'all') {
             count: monthlyData[item.monthYear]?.count || 0,
             totalAmount: monthlyData[item.monthYear]?.totalAmount || 0
         }));
+    }
+
+    // Apply Year filter to monthly summary (regardless of other filters)
+    if (currentYearFilter !== 'all' && Array.isArray(monthlySummary)) {
+        const targetYear = Number(currentYearFilter);
+        monthlySummary = monthlySummary.filter(item => {
+            if (!item.monthYear) return false;
+            const d = new Date(item.monthYear);
+            if (isNaN(d)) {
+                // Fallback: try to extract year as last token
+                const parts = String(item.monthYear).trim().split(' ');
+                const maybeYear = parseInt(parts[parts.length - 1], 10);
+                if (!isNaN(maybeYear)) {
+                    return maybeYear === targetYear;
+                }
+                return true;
+            }
+            return d.getFullYear() === targetYear;
+        });
     }
 
     // Prepare data for chart
@@ -1050,6 +1084,18 @@ function renderForecastWeeklyChart(weekSummaryArr) {
     window.lastWeekSummaryArr = weekSummaryArr; // Store data for later if config not ready
     return;
   }
+  // Apply year filter to weekly summary
+  if (currentYearFilter !== 'all' && Array.isArray(weekSummaryArr)) {
+    const targetYear = Number(currentYearFilter);
+    weekSummaryArr = weekSummaryArr.filter(w => {
+      if (!w || !w.monthWeek) return false;
+      const match = String(w.monthWeek).match(/\b(\d{4})\b/);
+      if (!match) return false;
+      const year = parseInt(match[1], 10);
+      return year === targetYear;
+    });
+  }
+
   window.lastWeekSummaryArr = weekSummaryArr;
   const yAxisLeftCanvas = document.getElementById('forecastWeeklyYAxisLeft');
   const yAxisLeftCtx = yAxisLeftCanvas.getContext('2d');
@@ -1725,6 +1771,47 @@ function populateDropdowns(data) {
         clientDropdown.value = currentClientFilter;
         clientDropdown.onchange = function() {
             currentClientFilter = this.value;
+            refreshForecastDashboard();
+        };
+    }
+
+    // Year Filter
+    const yearDropdown = document.getElementById('yearFilter');
+    if (yearDropdown) {
+        const years = Array.from(
+            new Set(
+                data.projectDetails
+                    .map(opp => {
+                        if (opp.forecast_date) {
+                            const d = new Date(opp.forecast_date);
+                            return isNaN(d) ? null : d.getFullYear();
+                        }
+                        if (opp.forecastMonth) {
+                            const d = new Date(opp.forecastMonth + ' 1');
+                            return isNaN(d) ? null : d.getFullYear();
+                        }
+                        return null;
+                    })
+                    .filter(Boolean)
+            )
+        ).sort((a, b) => b - a);
+
+        yearDropdown.innerHTML = '<option value="all">All Years</option>';
+        years.forEach(year => {
+            const opt = document.createElement('option');
+            opt.value = String(year);
+            opt.textContent = String(year);
+            yearDropdown.appendChild(opt);
+        });
+
+        // Default to most recent year if no year selected yet
+        if (currentYearFilter === 'all' && years.length > 0) {
+            currentYearFilter = String(years[0]);
+        }
+
+        yearDropdown.value = currentYearFilter;
+        yearDropdown.onchange = function() {
+            currentYearFilter = this.value;
             refreshForecastDashboard();
         };
     }

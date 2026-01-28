@@ -1051,15 +1051,26 @@ function renderHistoricalChart(data) {
     // Group data by month for historical trends
     const monthlyData = {};
     const currentDate = new Date();
-    const currentMonthKey = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+    const currentYear = currentDate.getFullYear();
+    const currentMonthKey = `${currentYear}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
     
     data.forEach(item => {
         if (item.date_received) {
-            const date = new Date(item.date_received);
-            const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-            
-            // Only include data from current month and earlier (exclude future months)
-            if (monthKey <= currentMonthKey) {
+            try {
+                const date = new Date(item.date_received);
+                if (isNaN(date)) {
+                    // Invalid date - skip this item
+                    return;
+                }
+                const year = date.getFullYear();
+                const monthKey = `${year}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+                
+                // Include all data from 2025 and 2026 (or current year if later)
+                // Also include current year data up to current month (exclude future months)
+                const is2025Or2026 = (year === 2025 || year === 2026 || (year === currentYear && currentYear >= 2026));
+                const isNotFuture = (year < currentYear || monthKey <= currentMonthKey);
+                
+                if (is2025Or2026 && isNotFuture) {
                 if (!monthlyData[monthKey]) {
                     monthlyData[monthKey] = {
                         totalOpportunities: 0,
@@ -1076,6 +1087,10 @@ function renderHistoricalChart(data) {
                 if (item.status?.toLowerCase() === 'submitted') {
                     monthlyData[monthKey].submittedCount++;
                     monthlyData[monthKey].submittedAmount += parseFloat(item.final_amt) || 0;
+                }
+                } catch (error) {
+                    // Invalid date - skip this item silently
+                    console.warn('[EXECUTIVE] Skipping item with invalid date_received:', item.date_received, error.message);
                 }
                 
                 if (['op100', 'op90', 'op60', 'op30'].includes(item.opp_status?.toLowerCase())) {
@@ -1235,12 +1250,33 @@ function renderDetailedTable(data) {
     const tbody = document.getElementById('detailedTableBody');
     if (!tbody) return;
     
-    // Sort by date_received (newest first)
-    const sortedData = [...data].sort((a, b) => new Date(b.date_received) - new Date(a.date_received));
+    // Sort by date_received (newest first) with error handling
+    const sortedData = [...data].sort((a, b) => {
+        try {
+            const dateA = a.date_received ? new Date(a.date_received) : new Date(0);
+            const dateB = b.date_received ? new Date(b.date_received) : new Date(0);
+            if (isNaN(dateA)) return 1; // Invalid dates go to end
+            if (isNaN(dateB)) return -1;
+            return dateB - dateA;
+        } catch (error) {
+            return 0; // Keep order if error
+        }
+    });
     
     tbody.innerHTML = sortedData.slice(0, 100).map(item => { // Limit to first 100 rows for performance
         const amount = formatMetricValue(parseFloat(item.final_amt) || 0);
-        const dateReceived = item.date_received ? new Date(item.date_received).toLocaleDateString() : '--';
+        let dateReceived = '--';
+        if (item.date_received) {
+            try {
+                const date = new Date(item.date_received);
+                if (!isNaN(date)) {
+                    dateReceived = date.toLocaleDateString();
+                }
+            } catch (error) {
+                // Invalid date - show raw value or --
+                dateReceived = String(item.date_received || '--');
+            }
+        }
         
         return `
             <tr>
@@ -2311,8 +2347,14 @@ async function getFallbackBaseline(allData, accountMgr) {
     const accountMgrHistoricalData = accountMgrAllData.filter(item => {
         if (!item.date_received) return false;
         
-        const itemDate = new Date(item.date_received);
-        return itemDate >= historicalCutoffStart && itemDate <= historicalCutoffEnd;
+        try {
+            const itemDate = new Date(item.date_received);
+            if (isNaN(itemDate)) return false;
+            return itemDate >= historicalCutoffStart && itemDate <= historicalCutoffEnd;
+        } catch (error) {
+            // Invalid date - exclude from baseline calculation
+            return false;
+        }
     });
     
     console.log(`[BASELINE] Historical data between ${historicalCutoffStart.toDateString()} and ${historicalCutoffEnd.toDateString()}: ${accountMgrHistoricalData.length} records`);

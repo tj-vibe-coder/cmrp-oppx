@@ -403,17 +403,36 @@ async function initializeAppWithToken(token) {
         // Show loading state
         if (loadingText) loadingText.style.display = 'block';
 
-        // Fetch opportunities data
-        const response = await fetch(getApiUrl('/api/opportunities'), {
-            headers: {
-                'Authorization': `Bearer ${token}`
+        // Fetch opportunities data with timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+        
+        let response;
+        try {
+            response = await fetch(getApiUrl('/api/opportunities'), {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                },
+                signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+        } catch (fetchError) {
+            clearTimeout(timeoutId);
+            // Handle network errors gracefully
+            if (fetchError.name === 'AbortError' || fetchError.message === 'Failed to fetch') {
+                console.error('[APP-INIT] Cannot connect to server. Please ensure the server is running on port 3000.');
+                throw new Error('Server connection failed. Please check if the server is running and try refreshing the page.');
             }
-        });
+            throw fetchError;
+        }
 
         // API response received
 
         if (!response.ok) {
-            throw new Error('Failed to fetch opportunities');
+            if (response.status === 401 || response.status === 403) {
+                throw new Error('Authentication failed. Please log in again.');
+            }
+            throw new Error(`Failed to fetch opportunities: ${response.status} ${response.statusText}`);
         }
 
         opportunities = await response.json();
@@ -490,27 +509,45 @@ async function initializeAppWithToken(token) {
         
     } catch (error) {
         // Error initializing app
-        console.error({
-            name: error.name,
-            message: error.message,
-            stack: error.stack,
-            toString: error.toString()
-        });
+        const isNetworkError = error.name === 'TypeError' && error.message === 'Failed to fetch';
+        const isTimeoutError = error.name === 'AbortError' || error.message?.includes('timeout');
+        const isServerConnectionError = error.message?.includes('Server connection failed') || 
+                                       error.message?.includes('Cannot connect to server');
         
         // Check if this is an authentication error vs other errors
         const isAuthError = error.message.includes('authentication') || 
                            error.message.includes('token') || 
                            error.message.includes('unauthorized') ||
                            error.message.includes('403') ||
-                           error.message.includes('401');
+                           error.message.includes('401') ||
+                           error.message.includes('Authentication failed');
         
-        // Show detailed error to user
+        // Log error details (but don't spam for network issues)
+        if (!isNetworkError && !isTimeoutError && !isServerConnectionError) {
+            console.error('[APP-INIT] Error:', {
+                name: error.name,
+                message: error.message,
+                stack: error.stack
+            });
+        } else {
+            console.error('[APP-INIT] Network/Server Error:', error.message);
+        }
+        
+        // Show user-friendly error message
+        let errorMessage = error.message;
+        let solution = 'Try refreshing the page.';
+        
+        if (isServerConnectionError || isNetworkError || isTimeoutError) {
+            errorMessage = 'Cannot connect to server';
+            solution = 'Please ensure the server is running on port 3000. Start it with: <code>node server.js</code>';
+        } else if (isAuthError) {
+            solution = 'Please log in again';
+        }
+        
         const errorDetails = `
             <strong>App Initialization Error:</strong><br>
-            <strong>Message:</strong> ${error.message}<br>
-            <strong>Type:</strong> ${error.name}<br>
-            <strong>Details:</strong> Check browser console for full stack trace<br>
-            <strong>Solution:</strong> ${isAuthError ? 'Please log in again' : 'This might be a network issue. Try refreshing the page.'}
+            <strong>Message:</strong> ${errorMessage}<br>
+            <strong>Solution:</strong> ${solution}
         `;
         showAuthErrorBanner(errorDetails);
         

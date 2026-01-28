@@ -81,6 +81,7 @@ function saveSettings() {
         currentSolutionFilter,
         currentAccountMgrFilter,
         currentClientFilter,
+        currentYearFilter,
         activeQuarters,
         currentTableStatusFilter,
         currentSort,
@@ -127,6 +128,10 @@ function loadSettings() {
                 console.log('🔧 [WIN-LOSS-DEBUG] Setting currentClientFilter from', currentClientFilter, 'to', settings.currentClientFilter);
                 currentClientFilter = settings.currentClientFilter;
             }
+            if (settings.currentYearFilter !== undefined) {
+                console.log('🔧 [WIN-LOSS-DEBUG] Setting currentYearFilter from', currentYearFilter, 'to', settings.currentYearFilter);
+                currentYearFilter = settings.currentYearFilter;
+            }
             if (settings.activeQuarters !== undefined) {
                 console.log('🔧 [WIN-LOSS-DEBUG] Setting activeQuarters from', activeQuarters, 'to', settings.activeQuarters);
                 activeQuarters = settings.activeQuarters;
@@ -145,6 +150,7 @@ function loadSettings() {
                 solutionFilter: currentSolutionFilter,
                 accountMgrFilter: currentAccountMgrFilter,
                 clientFilter: currentClientFilter,
+                yearFilter: currentYearFilter,
                 tableStatusFilter: currentTableStatusFilter,
                 activeQuarters: activeQuarters,
                 sort: currentSort
@@ -165,6 +171,7 @@ function restoreUIState() {
         solutionFilter: currentSolutionFilter,
         accountMgrFilter: currentAccountMgrFilter,
         clientFilter: currentClientFilter,
+        yearFilter: currentYearFilter,
         activeQuarters: activeQuarters,
         tableStatusFilter: currentTableStatusFilter,
         sort: currentSort
@@ -197,6 +204,15 @@ function restoreUIState() {
         if (clientDropdown.value !== currentClientFilter) {
             clientDropdown.value = currentClientFilter;
             console.log('[SETTINGS] Updated client dropdown to:', clientDropdown.value);
+        }
+    }
+    
+    const yearDropdown = document.getElementById('yearFilter');
+    if (yearDropdown) {
+        console.log('[SETTINGS] Year dropdown current value:', yearDropdown.value, 'should be:', currentYearFilter);
+        if (yearDropdown.value !== currentYearFilter) {
+            yearDropdown.value = currentYearFilter;
+            console.log('[SETTINGS] Updated year dropdown to:', yearDropdown.value);
         }
     }
     
@@ -237,20 +253,32 @@ let lossChartInstance = null;  // Instance for the Losses chart
 let currentSolutionFilter = 'all'; // State for the solution filter
 let currentAccountMgrFilter = 'all';
 let currentClientFilter = 'all';
+let currentYearFilter = 'all';
 // let currentQuarterFilter = 'all'; // Replaced by activeQuarters
 
 // Initialize activeQuarters based on current date
+// Include all quarters from 2025 and 2026 (or current year if later)
 function initializeActiveQuarters() {
     const now = new Date();
+    const currentYear = now.getFullYear();
     const currentMonth = now.getMonth(); // 0-11
     const currentQuarter = Math.floor(currentMonth / 3) + 1; // 1-4
     
     // Initialize all quarters as inactive
     const quarters = { '1': false, '2': false, '3': false, '4': false };
     
-    // Activate current quarter and all previous quarters in the current year
-    for (let q = 1; q <= currentQuarter; q++) {
-        quarters[q] = true;
+    // Always include all quarters from 2025
+    // Also include all quarters up to current quarter in 2026 (or current year)
+    if (currentYear >= 2025) {
+        // Activate all quarters for 2025 and current year
+        for (let q = 1; q <= 4; q++) {
+            quarters[q] = true;
+        }
+    } else {
+        // If somehow we're before 2025, activate up to current quarter
+        for (let q = 1; q <= currentQuarter; q++) {
+            quarters[q] = true;
+        }
     }
     
     return quarters;
@@ -556,20 +584,25 @@ function renderWinLossCharts(data) {
     let lossMonthlyAmount = Array(12).fill(0);
     let lossMonthlyCount = Array(12).fill(0);
 
-    // Process data
+    // Process data with error handling
     data.forEach(item => {
-        const date = robustParseDate(item.date_awarded || item.date_awarded_lost);
-        if (date && !isNaN(date)) {
-            const month = date.getMonth();
-            if (monthIndices.includes(month)) {
-                if (item.opp_status === 'OP100') {
-                    winMonthlyAmount[month] += Number(item.final_amt) || 0;
-                    winMonthlyCount[month] += 1;
-                } else if (item.opp_status === 'LOST') {
-                    lossMonthlyAmount[month] += Number(item.final_amt) || 0;
-                    lossMonthlyCount[month] += 1;
+        try {
+            const date = robustParseDate(item.date_awarded || item.date_awarded_lost);
+            if (date && !isNaN(date)) {
+                const month = date.getMonth();
+                if (monthIndices.includes(month)) {
+                    if (item.opp_status === 'OP100') {
+                        winMonthlyAmount[month] += Number(item.final_amt) || 0;
+                        winMonthlyCount[month] += 1;
+                    } else if (item.opp_status === 'LOST') {
+                        lossMonthlyAmount[month] += Number(item.final_amt) || 0;
+                        lossMonthlyCount[month] += 1;
+                    }
                 }
             }
+        } catch (error) {
+            // Silently skip items with invalid dates - don't break the chart
+            console.warn('[WIN-LOSS] Skipping item with invalid date:', item.date_awarded || item.date_awarded_lost, error.message);
         }
     });
 
@@ -818,14 +851,28 @@ function getFilteredTableData(opportunities) {
         if (currentClientFilter !== 'all' && item.client !== currentClientFilter) {
             return false;
         }
-        // Apply quarter filter
-        const date = robustParseDate(item.date_awarded || item.date_awarded_lost);
-        if (date && !isNaN(date)) {
-            const month = date.getMonth();
-            const quarter = Math.floor(month / 3) + 1;
-            if (!activeQuarters[quarter]) {
+        // Apply year + quarter filter with error handling
+        try {
+            const date = robustParseDate(item.date_awarded || item.date_awarded_lost);
+            if (date && !isNaN(date)) {
+                const year = date.getFullYear();
+                const month = date.getMonth();
+                const quarter = Math.floor(month / 3) + 1;
+
+                if (currentYearFilter !== 'all' && year.toString() !== currentYearFilter.toString()) {
+                    return false;
+                }
+                if (!activeQuarters[quarter]) {
+                    return false;
+                }
+            } else if (item.date_awarded || item.date_awarded_lost) {
+                // Has a date value but couldn't parse it - exclude from filtered results
                 return false;
             }
+        } catch (error) {
+            // Invalid date - exclude from filtered results
+            console.warn('[WIN-LOSS] Invalid date in filter:', item.date_awarded || item.date_awarded_lost, error.message);
+            return false;
         }
         return true;
     });
@@ -866,14 +913,28 @@ function renderDashboard(data) {
         if (currentClientFilter !== 'all' && item.client !== currentClientFilter) {
             return false;
         }
-        // Apply quarter filter based on date_awarded_lost
-        const date = robustParseDate(item.date_awarded || item.date_awarded_lost);
-        if (date && !isNaN(date)) {
-            const month = date.getMonth();
-            const quarter = Math.floor(month / 3) + 1;
-            if (!activeQuarters[quarter]) {
+        // Apply year + quarter filter with error handling
+        try {
+            const date = robustParseDate(item.date_awarded || item.date_awarded_lost);
+            if (date && !isNaN(date)) {
+                const year = date.getFullYear();
+                const month = date.getMonth();
+                const quarter = Math.floor(month / 3) + 1;
+
+                if (currentYearFilter !== 'all' && year.toString() !== currentYearFilter.toString()) {
+                    return false;
+                }
+                if (!activeQuarters[quarter]) {
+                    return false;
+                }
+            } else if (item.date_awarded || item.date_awarded_lost) {
+                // Has a date value but couldn't parse it - exclude from filtered results
                 return false;
             }
+        } catch (error) {
+            // Invalid date - exclude from filtered results
+            console.warn('[WIN-LOSS] Invalid date in filter:', item.date_awarded || item.date_awarded_lost, error.message);
+            return false;
         }
         return true;
     });
@@ -982,8 +1043,15 @@ function renderOpportunitiesTable(opportunities) {
                     v2 = (b['account_mgr'] || '').toLowerCase();
                     break;
                 case 'date_awarded':
-                    v1 = a['date_awarded_lost'] ? new Date(a['date_awarded_lost']) : new Date(0);
-                    v2 = b['date_awarded_lost'] ? new Date(b['date_awarded_lost']) : new Date(0);
+                    try {
+                        const date1 = robustParseDate(a['date_awarded_lost']);
+                        const date2 = robustParseDate(b['date_awarded_lost']);
+                        v1 = date1 || new Date(0);
+                        v2 = date2 || new Date(0);
+                    } catch (error) {
+                        v1 = new Date(0);
+                        v2 = new Date(0);
+                    }
                     break;
                 case 'final_amt':
                     v1 = Number(a['final_amt']) || 0;
@@ -1009,7 +1077,13 @@ function renderOpportunitiesTable(opportunities) {
         const acctMgr = opp['account_mgr'] || '';
         let dateAwarded = '';
         if (opp['date_awarded_lost']) {
-            dateAwarded = formatDateAwardedMDY(opp['date_awarded_lost']);
+            try {
+                dateAwarded = formatDateAwardedMDY(opp['date_awarded_lost']);
+            } catch (error) {
+                // Invalid date format - show raw value or empty
+                console.warn('[WIN-LOSS] Invalid date format for display:', opp['date_awarded_lost'], error.message);
+                dateAwarded = String(opp['date_awarded_lost'] || '');
+            }
         }
         const finalAmtValue = opp['final_amt'] || '';
         const marginValue = opp['margin_percentage'] || opp['margin'] || '';
@@ -1128,6 +1202,46 @@ function populateDropdowns(data) {
         
         clientDropdown.onchange = function() {
             currentClientFilter = this.value;
+            saveSettings();
+            renderDashboard(dashboardDataCache);
+        };
+    }
+
+    // Year
+    const yearDropdown = document.getElementById('yearFilter');
+    if (yearDropdown) {
+        const years = Array.from(
+            new Set(
+                data
+                    .map(opp => {
+                        let d = null;
+                        try {
+                            d = robustParseDate(opp.date_awarded || opp.date_awarded_lost);
+                        } catch (error) {
+                            console.warn('[WIN-LOSS] Error parsing date in populateDropdowns:', opp.date_awarded || opp.date_awarded_lost, error.message);
+                        }
+                        return d && !isNaN(d) ? d.getFullYear() : null;
+                    })
+                    .filter(Boolean)
+            )
+        ).sort((a, b) => b - a);
+
+        yearDropdown.innerHTML = '<option value="all">All Years</option>';
+        years.forEach(year => {
+            const opt = document.createElement('option');
+            opt.value = String(year);
+            opt.textContent = String(year);
+            yearDropdown.appendChild(opt);
+        });
+
+        // Default to most recent year if none selected yet
+        if (currentYearFilter === 'all' && years.length > 0) {
+            currentYearFilter = String(years[0]);
+        }
+
+        yearDropdown.value = currentYearFilter;
+        yearDropdown.onchange = function() {
+            currentYearFilter = this.value;
             saveSettings();
             renderDashboard(dashboardDataCache);
         };

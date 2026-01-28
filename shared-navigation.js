@@ -159,8 +159,14 @@ class SharedNavigation {
         
         // Check if notification system is available and user is authenticated
         if (typeof NotificationManager !== 'undefined' && localStorage.getItem('authToken') && document.getElementById('notificationsBell')) {
-            console.log('[SHARED-NAV] Creating NotificationManager instance...');
-            window.notificationManager = new NotificationManager();
+            try {
+                console.log('[SHARED-NAV] Creating NotificationManager instance...');
+                window.notificationManager = new NotificationManager();
+            } catch (error) {
+                // Don't let notification system errors break the app
+                console.warn('[SHARED-NAV] Failed to initialize notification system (non-critical):', error.message);
+                window.notificationManager = null;
+            }
         } else {
             console.log('[SHARED-NAV] Notification system not ready:', {
                 NotificationManagerExists: typeof NotificationManager !== 'undefined',
