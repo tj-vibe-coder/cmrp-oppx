@@ -186,12 +186,23 @@ async function transaction(callback) {
     }
 
     if (dbType === 'sqlitecloud') {
-        await query('BEGIN TRANSACTION');
+        // SQLiteCloud: Use BEGIN (not BEGIN TRANSACTION) 
+        // SQLiteCloud Database object maintains transaction state across sequential db.sql() calls
         try {
-            await callback(query);
-            await query('COMMIT');
+            await db.sql('BEGIN');
+            console.log('[DB-ADAPTER] SQLiteCloud transaction started');
+            const result = await callback(query);
+            await db.sql('COMMIT');
+            console.log('[DB-ADAPTER] SQLiteCloud transaction committed');
+            return result;
         } catch (error) {
-            await query('ROLLBACK');
+            console.error('[DB-ADAPTER] SQLiteCloud transaction error, rolling back:', error.message);
+            try {
+                await db.sql('ROLLBACK');
+                console.log('[DB-ADAPTER] SQLiteCloud transaction rolled back');
+            } catch (rollbackError) {
+                console.error('[DB-ADAPTER] Rollback error:', rollbackError);
+            }
             throw error;
         }
     } else if (dbType === 'sqlite') {
