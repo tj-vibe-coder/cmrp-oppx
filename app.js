@@ -6231,12 +6231,35 @@ async function saveEdit(newValue, header, uid) {
         });
         
         if (!response.ok) {
-            const err = await response.json();
-            let errorMessage = err.message || err.error || response.statusText;
-            if (err.details) {
-                // Detailed error info
-                errorMessage += '\n\nDetails: ' + err.details;
+            let errorMessage = `Server error: ${response.status} ${response.statusText}`;
+            try {
+                const err = await response.json();
+                errorMessage = err.message || err.error || errorMessage;
+                if (err.details) {
+                    // Detailed error info
+                    errorMessage += '\n\nDetails: ' + err.details;
+                }
+            } catch (parseError) {
+                // If response is not JSON, try to get text
+                try {
+                    const text = await response.text();
+                    if (text) {
+                        errorMessage = text.substring(0, 200); // Limit length
+                    }
+                } catch (textError) {
+                    // Use default error message
+                }
             }
+            
+            // Handle specific error codes
+            if (response.status === 401 || response.status === 403) {
+                errorMessage = 'Authentication failed. Please log in again.';
+                localStorage.removeItem('authToken');
+                setTimeout(() => {
+                    window.location.href = 'login.html';
+                }, 1000);
+            }
+            
             throw new Error(errorMessage);
         }
 
