@@ -7,6 +7,7 @@ function getApiUrl(endpoint) {
 // --- Global Variables ---
 let forecastDataCache = null;
 let projectDetailsCache = [];
+let fullProjectDetailsCache = []; // Store full dataset for dropdown population
 let currentSort = { key: 'amount', dir: -1 };
 let forecastChartInstance = null;
 let currentOpStatusFilter = 'all';
@@ -109,10 +110,12 @@ async function fetchForecastData(statusFilter = 'all') {
         // Store original project count for auto-filtering calculations
         if (data.projectDetails) {
             data.originalProjectCount = data.projectDetails.length;
+            // Store full dataset for dropdown population (before any filtering)
+            fullProjectDetailsCache = [...data.projectDetails];
         }
         
-        // Populate dropdowns when data is first fetched
-        populateDropdowns(data);
+        // Populate dropdowns from full dataset (not filtered data)
+        populateDropdowns({ ...data, projectDetails: fullProjectDetailsCache });
         
         // Render the dashboard with the fetched data
         renderForecastDashboard(data, statusFilter);
@@ -1719,7 +1722,17 @@ async function refreshForecastDashboard() {
 }
 
 function populateDropdowns(data) {
-    if (!data || !data.projectDetails) return;
+    if (!data || !data.projectDetails) {
+        console.warn('[POPULATE-DROPDOWNS] No data provided, using cached full dataset');
+        // Fallback to cached full dataset if available
+        if (fullProjectDetailsCache.length > 0) {
+            data = { projectDetails: fullProjectDetailsCache };
+        } else {
+            return;
+        }
+    }
+    
+    console.log('[POPULATE-DROPDOWNS] Populating dropdowns from', data.projectDetails.length, 'projects');
 
     // Solution Filter
     const solutionDropdown = document.getElementById('solutionFilter');
@@ -1742,7 +1755,8 @@ function populateDropdowns(data) {
     // Account Manager Filter
     const mgrDropdown = document.getElementById('accountMgrFilter');
     if (mgrDropdown) {
-        const mgrs = Array.from(new Set(data.projectDetails.map(opp => opp['account_mgr']).filter(Boolean)));
+        const mgrs = Array.from(new Set(data.projectDetails.map(opp => opp['account_mgr']).filter(Boolean))).sort();
+        console.log('[POPULATE-DROPDOWNS] Found', mgrs.length, 'account managers:', mgrs);
         mgrDropdown.innerHTML = '<option value="all">All</option>';
         mgrs.forEach(mgr => {
             const opt = document.createElement('option');
@@ -1750,7 +1764,16 @@ function populateDropdowns(data) {
             opt.textContent = mgr;
             mgrDropdown.appendChild(opt);
         });
-        mgrDropdown.value = currentAccountMgrFilter;
+        
+        // Only set value if it exists in the new options
+        const availableOptions = Array.from(mgrDropdown.options).map(opt => opt.value);
+        if (availableOptions.includes(currentAccountMgrFilter)) {
+            mgrDropdown.value = currentAccountMgrFilter;
+        } else {
+            currentAccountMgrFilter = 'all';
+            mgrDropdown.value = 'all';
+        }
+        
         mgrDropdown.onchange = function() {
             currentAccountMgrFilter = this.value;
             refreshForecastDashboard();
