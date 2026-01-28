@@ -6111,17 +6111,26 @@ function makeEditable(td, originalFullRow, header, originalIndex) {
         let isProcessingSave = false;
         let saveOnBlur = async () => {
             if (isProcessingSave) return;
-            let value = input.value;
-            if (input.tagName === 'SELECT') value = input.options[input.selectedIndex].value;
-            // Only save if value actually changed
-            if (value === currentValue) {
+            try {
+                let value = input.value;
+                if (input.tagName === 'SELECT') value = input.options[input.selectedIndex].value;
+                // Only save if value actually changed
+                if (value === currentValue) {
+                    td.innerHTML = originalContent;
+                    return;
+                }
+                isProcessingSave = true;
+                await saveEdit(value, header, originalFullRow.uid);
+                td.innerHTML = formatCellValue(value, header);
+                isProcessingSave = false;
+            } catch (error) {
+                isProcessingSave = false;
+                console.error('[saveOnBlur] Error saving edit:', error);
+                // Restore original content on error
                 td.innerHTML = originalContent;
-                return;
+                // Error message already shown by saveEdit's catch block
+                throw error;
             }
-            isProcessingSave = true;
-            await saveEdit(value, header, originalFullRow.uid);
-            td.innerHTML = formatCellValue(value, header);
-            isProcessingSave = false;
         };
 
         // Save on Enter, Cancel on ESC
@@ -6252,7 +6261,23 @@ async function saveEdit(newValue, header, uid) {
         
     } catch (error) {
         // Error saving edit
-        alert(`Error saving: ${error.message}`);
+        console.error('[saveEdit] Error details:', {
+            message: error.message,
+            stack: error.stack,
+            header: header,
+            uid: uid,
+            newValue: newValue
+        });
+        
+        // Show user-friendly error message
+        let errorMessage = 'An unexpected error occurred.';
+        if (error.message) {
+            errorMessage = error.message;
+        } else if (error instanceof Error) {
+            errorMessage = error.toString();
+        }
+        
+        alert(`Error saving: ${errorMessage}`);
         throw error; // Re-throw to let makeEditable handle the revert
     }
 }
