@@ -96,14 +96,104 @@ app.get('/api/cors-test', (req, res) => {
   });
 });
 
+// Database diagnostic endpoints
+app.get('/api/db-test', async (req, res) => {
+  try {
+    const result = await db.query('SELECT 1 as test, datetime("now") as current_time');
+    res.json({ 
+      success: true, 
+      dbType: db.getDBType(),
+      test: result.rows[0],
+      databaseUrl: process.env.DATABASE_URL ? 'Set (hidden)' : 'Not Set'
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      error: error.message,
+      dbType: db.getDBType(),
+      stack: error.stack?.substring(0, 500)
+    });
+  }
+});
+
+// Test transaction endpoint
+app.get('/api/db-transaction-test', async (req, res) => {
+  try {
+    let testValue = `test_${Date.now()}`;
+    console.log('[DB-TEST] Starting transaction test with value:', testValue);
+    
+    await db.transaction(async (query) => {
+      // Try to update a test field (using a safe query that won't break if column doesn't exist)
+      const testQuery = `SELECT COUNT(*) as count FROM opps_monitoring LIMIT 1`;
+      const result = await query(testQuery);
+      console.log('[DB-TEST] Query result in transaction:', result);
+      
+      // Try a simple update on first row (safe test)
+      if (result.rows && result.rows.length > 0 && result.rows[0].count > 0) {
+        const updateQuery = `UPDATE opps_monitoring SET remarks_comments = ? WHERE uid = (SELECT uid FROM opps_monitoring LIMIT 1)`;
+        const updateResult = await query(updateQuery, [testValue]);
+        console.log('[DB-TEST] Update result in transaction:', updateResult);
+      }
+    });
+    
+    // Verify the update persisted
+    const verifyResult = await db.query(
+      `SELECT remarks_comments FROM opps_monitoring WHERE remarks_comments = ? LIMIT 1`,
+      [testValue]
+    );
+    
+    res.json({ 
+      success: true, 
+      message: 'Transaction test completed',
+      updatePersisted: verifyResult.rows.length > 0,
+      testValue: testValue
+    });
+  } catch (error) {
+    console.error('[DB-TEST] Transaction test error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message,
+      stack: error.stack?.substring(0, 500)
+    });
+  }
+});
+
 // Initialize database connection (SQLiteCloud or PostgreSQL)
 let pool; // Keep for compatibility
 (async () => {
   try {
     pool = await db.initDatabase();
     console.log('✅ Database initialized successfully');
+    
+    // Test write capability
+    try {
+      const dbType = db.getDBType();
+      console.log(`📊 Database type: ${dbType}`);
+      
+      if (dbType === 'sqlitecloud') {
+        // Test if we can write to SQLiteCloud
+        const testResult = await db.query('SELECT 1 as test_write');
+        console.log('✅ SQLiteCloud read test passed:', testResult.rows[0]);
+        
+        // Try a test transaction
+        try {
+          await db.transaction(async (query) => {
+            const result = await query('SELECT 1 as test_transaction');
+            console.log('✅ SQLiteCloud transaction test passed:', result.rows[0]);
+          });
+        } catch (txError) {
+          console.error('❌ SQLiteCloud transaction test failed:', txError.message);
+        }
+      }
+    } catch (testError) {
+      console.error('❌ Database write test failed:', testError.message);
+    }
   } catch (error) {
     console.error('❌ Database initialization failed:', error);
+    console.error('Error details:', {
+      message: error.message,
+      stack: error.stack?.substring(0, 500)
+    });
   }
 })();
 
@@ -3021,13 +3111,44 @@ app.put('/api/opportunities/:uid', authenticateToken,
         const values = keysToUpdate.map(key => updateData[key]);
         values.push(uid);
         const updateSql = `UPDATE opps_monitoring SET ${setClause} WHERE uid = ?`;
-        console.log('[PUT] Executing Update SQL:', updateSql); console.log('With Values:', values);
-        await query(updateSql, values);
+        console.log('[PUT] Executing Update SQL:', updateSql); 
+        console.log('[PUT] With Values:', values);
         
-        // Fetch updated row
+        const updateResult = await query(updateSql, values);
+        console.log(`[PUT /api/opportunities/${uid}] Update result:`, {
+          rowCount: updateResult.rowCount,
+          changes: updateResult.changes,
+          lastID: updateResult.lastID
+        });
+        
+        if (updateResult.rowCount === 0 && db.getDBType() === 'sqlitecloud') {
+          console.warn(`[PUT /api/opportunities/${uid}] ⚠️ UPDATE returned 0 rows affected - this might indicate the update didn't work`);
+        }
+        
+        // Fetch updated row to verify
         const updatedResult = await query('SELECT * FROM opps_monitoring WHERE uid = ?', [uid]);
+        if (!updatedResult.rows || updatedResult.rows.length === 0) {
+          throw new Error('Failed to fetch updated opportunity - update may have failed');
+        }
         updatedOpp = updatedResult.rows[0];
         console.log(`[PUT /api/opportunities/${uid}] Updated Opp Data:`, JSON.stringify(updatedOpp, null, 2));
+        
+        // Verify the update actually happened by comparing key fields
+        const updateVerified = keysToUpdate.every(key => {
+          const expectedValue = updateData[key];
+          const actualValue = updatedOpp[key];
+          if (expectedValue !== actualValue) {
+            console.warn(`[PUT /api/opportunities/${uid}] ⚠️ Field ${key} mismatch: expected ${expectedValue}, got ${actualValue}`);
+            return false;
+          }
+          return true;
+        });
+        
+        if (!updateVerified) {
+          console.error(`[PUT /api/opportunities/${uid}] ❌ Update verification failed - values don't match`);
+        } else {
+          console.log(`[PUT /api/opportunities/${uid}] ✅ Update verified - all fields match`);
+        }
 
         // 5. Build Snapshot of State *After* Update
         const updatedSnapshot = buildSnapshot(updatedOpp);

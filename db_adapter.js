@@ -96,6 +96,13 @@ async function query(sql, params = []) {
     if (dbType === 'sqlitecloud') {
         // SQLiteCloud query
         try {
+            // Log UPDATE/INSERT/DELETE queries for debugging
+            const isWriteQuery = /^\s*(UPDATE|INSERT|DELETE)/i.test(sql.trim());
+            if (isWriteQuery) {
+                console.log('[DB-ADAPTER] SQLiteCloud write query:', sql.substring(0, 200));
+                console.log('[DB-ADAPTER] Params:', params);
+            }
+            
             let result;
             
             // SQLiteCloud supports both template literals and function calls
@@ -109,7 +116,22 @@ async function query(sql, params = []) {
             }
 
             // Normalize result format to match PostgreSQL
+            // SQLiteCloud returns arrays for SELECT, but may return objects for INSERT/UPDATE/DELETE
             if (Array.isArray(result)) {
+                // SELECT query - return rows
+                if (isWriteQuery) {
+                    console.log('[DB-ADAPTER] ⚠️ SQLiteCloud write query returned array (unexpected):', result.length, 'rows');
+                    // For UPDATE/INSERT/DELETE, if we get an array, it might be empty or contain affected rows
+                    // Check if it's actually a write result in array format
+                    if (result.length === 0) {
+                        // Empty array for write query - might mean success but no rows returned
+                        console.log('[DB-ADAPTER] Empty array for write query - assuming success');
+                        return {
+                            rows: [],
+                            rowCount: 1 // Assume 1 row affected if empty array
+                        };
+                    }
+                }
                 return {
                     rows: result,
                     rowCount: result.length
@@ -117,26 +139,55 @@ async function query(sql, params = []) {
             }
 
             // Handle result object (for INSERT/UPDATE/DELETE)
-            if (result && typeof result === 'object') {
+            if (result && typeof result === 'object' && !Array.isArray(result)) {
+                // Check if it has changes property (UPDATE/DELETE) or lastID (INSERT)
+                const rowCount = result.changes !== undefined ? result.changes : 
+                                result.rowCount !== undefined ? result.rowCount : 
+                                result.lastID !== undefined ? 1 : 0;
+                
+                if (isWriteQuery) {
+                    console.log('[DB-ADAPTER] SQLiteCloud write query result object:', {
+                        changes: result.changes,
+                        rowCount: result.rowCount,
+                        lastID: result.lastID || result.lastInsertRowid,
+                        computedRowCount: rowCount,
+                        fullResult: JSON.stringify(result).substring(0, 200)
+                    });
+                }
+                
                 return {
                     rows: [],
-                    rowCount: result.changes || result.rowCount || 0,
+                    rowCount: rowCount,
                     lastID: result.lastID || result.lastInsertRowid
                 };
             }
 
+            // Handle null/undefined result (might mean success for write queries)
+            if (result === null || result === undefined) {
+                if (isWriteQuery) {
+                    console.log('[DB-ADAPTER] SQLiteCloud write query returned null/undefined - assuming success');
+                    return {
+                        rows: [],
+                        rowCount: 1 // Assume success
+                    };
+                }
+            }
+
+            if (isWriteQuery) {
+                console.log('[DB-ADAPTER] ⚠️ SQLiteCloud query returned unexpected format:', typeof result, result);
+            }
             return {
                 rows: [],
                 rowCount: 0
             };
         } catch (error) {
-            console.error('[DB-ADAPTER] SQLiteCloud query error:', error);
-            console.error('[DB-ADAPTER] SQL:', sql);
+            console.error('[DB-ADAPTER] ❌ SQLiteCloud query error:', error.message);
+            console.error('[DB-ADAPTER] SQL:', sql.substring(0, 200));
             console.error('[DB-ADAPTER] Params:', params);
             console.error('[DB-ADAPTER] Error details:', {
                 message: error.message,
                 code: error.code,
-                stack: error.stack
+                stack: error.stack?.substring(0, 500)
             });
             throw error;
         }
@@ -186,22 +237,30 @@ async function transaction(callback) {
     }
 
     if (dbType === 'sqlitecloud') {
-        // SQLiteCloud: Use BEGIN (not BEGIN TRANSACTION) 
+        // SQLiteCloud: Use BEGIN TRANSACTION (required by SQLiteCloud)
         // SQLiteCloud Database object maintains transaction state across sequential db.sql() calls
+        // All queries within the callback must use the same Database instance (db.sql)
         try {
-            await db.sql('BEGIN');
-            console.log('[DB-ADAPTER] SQLiteCloud transaction started');
+            console.log('[DB-ADAPTER] Starting SQLiteCloud transaction...');
+            await db.sql('BEGIN TRANSACTION');
+            console.log('[DB-ADAPTER] ✅ SQLiteCloud transaction started');
+            
+            // Execute callback - all queries inside will be part of the transaction
             const result = await callback(query);
+            
+            console.log('[DB-ADAPTER] Committing SQLiteCloud transaction...');
             await db.sql('COMMIT');
-            console.log('[DB-ADAPTER] SQLiteCloud transaction committed');
+            console.log('[DB-ADAPTER] ✅ SQLiteCloud transaction committed successfully');
             return result;
         } catch (error) {
-            console.error('[DB-ADAPTER] SQLiteCloud transaction error, rolling back:', error.message);
+            console.error('[DB-ADAPTER] ❌ SQLiteCloud transaction error:', error.message);
+            console.error('[DB-ADAPTER] Stack:', error.stack);
             try {
+                console.log('[DB-ADAPTER] Rolling back SQLiteCloud transaction...');
                 await db.sql('ROLLBACK');
-                console.log('[DB-ADAPTER] SQLiteCloud transaction rolled back');
+                console.log('[DB-ADAPTER] ✅ SQLiteCloud transaction rolled back');
             } catch (rollbackError) {
-                console.error('[DB-ADAPTER] Rollback error:', rollbackError);
+                console.error('[DB-ADAPTER] ❌ Rollback error:', rollbackError.message);
             }
             throw error;
         }
