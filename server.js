@@ -2008,45 +2008,35 @@ app.get('/api/next-project-code', authenticateToken, async (req, res) => {
     console.log('[API] Google Drive failed, falling back to database method...');
     
     try {
-      const result = await db.query(`
-        SELECT project_code 
-        FROM opps_monitoring 
-        WHERE project_code IS NOT NULL 
-          AND project_code LIKE 'CMRP%' 
-        ORDER BY project_code DESC 
-        LIMIT 1
-      `);
-      
-      let nextCode;
       const currentYear = new Date().getFullYear().toString().slice(-2);
       const currentMonth = String(new Date().getMonth() + 1).padStart(2, '0');
+      const prefix = `CMRP${currentYear}${currentMonth}`;
       
-      if (result.rows.length === 0) {
-        nextCode = `CMRP${currentYear}${currentMonth}0001`;
-        } else {
-          const lastCode = result.rows[0].project_code;
-          const match = lastCode.match(/^CMRP(\d{2})(\d{2})(\d{4})$/);
-          
-          if (match) {
-            const [, lastYear, lastMonth, lastSequence] = match;
-            
-            if (currentYear === lastYear && currentMonth === lastMonth) {
-              const nextSequence = (parseInt(lastSequence) + 1).toString().padStart(4, '0');
-              nextCode = `CMRP${currentYear}${currentMonth}${nextSequence}`;
-            } else {
-              nextCode = `CMRP${currentYear}${currentMonth}0001`;
-            }
-          } else {
-            nextCode = `CMRP${currentYear}${currentMonth}0001`;
-          }
-        }
+      // Prefer computing max sequence for current YYMM to avoid being confused by older months
+      // and by project_code values with suffixes/spaces.
+      const seqResult = await db.query(
+        `
+          SELECT MAX(CAST(SUBSTR(project_code, 9, 4) AS INTEGER)) AS max_seq
+          FROM opps_monitoring
+          WHERE project_code IS NOT NULL
+            AND project_code LIKE ?
+            AND LENGTH(project_code) >= 12
+        `,
+        [`${prefix}%`]
+      );
+
+      const maxSeqRaw = seqResult.rows?.[0]?.max_seq;
+      const maxSeq = Number.isFinite(Number(maxSeqRaw)) ? Number(maxSeqRaw) : 0;
+      const nextSequence = String(maxSeq + 1).padStart(4, '0');
+      const nextCode = `${prefix}${nextSequence}`;
         
-        console.log('[API] Fallback generated next project code:', nextCode);
-        res.json({ 
-          nextProjectCode: nextCode,
-          fallbackUsed: true,
-          warning: 'Google Drive scan failed, using database fallback'
-        });
+      console.log('[API] Fallback generated next project code:', nextCode, '(maxSeq:', maxSeq, ')');
+      res.json({ 
+        nextProjectCode: nextCode,
+        fallbackUsed: true,
+        maxSeq: maxSeq,
+        warning: 'Google Drive scan failed, using database fallback'
+      });
       
     } catch (fallbackError) {
       console.error('[API /api/next-project-code] Fallback error:', fallbackError);
