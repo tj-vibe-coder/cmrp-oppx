@@ -6759,6 +6759,47 @@ async function handleEditFormSubmit(e) {
             // Add to opportunities array
             const newOpportunity = await response.json();
             opportunities.unshift(newOpportunity);
+
+            // If server-side auto-folder creation failed or was skipped, attempt to create it via API (non-blocking)
+            // This helps when Drive initialization is flaky or the server didn't persist folder fields in the response yet.
+            if (isCreateMode && newOpportunity?.uid && !newOpportunity.google_drive_folder_id) {
+                try {
+                    console.log('📁 [AUTO-FOLDER] No Drive folder linked; attempting to create folder via API...');
+                    const token = getAuthToken() || localStorage.getItem('authToken');
+                    if (!token) throw new Error('No auth token available');
+
+                    const folderRes = await fetch(
+                        getApiUrl(`/api/opportunities/${encodeURIComponent(newOpportunity.uid)}/drive-folder`),
+                        {
+                            method: 'POST',
+                            headers: {
+                                'Authorization': `Bearer ${token}`
+                            }
+                        }
+                    );
+
+                    if (folderRes.ok) {
+                        const folderData = await folderRes.json();
+                        const folder = folderData.folder || folderData;
+                        console.log('✅ [AUTO-FOLDER] Folder created:', folder);
+
+                        const oppIndex = opportunities.findIndex(opp => opp.uid === newOpportunity.uid);
+                        if (oppIndex !== -1 && folder?.id) {
+                            Object.assign(opportunities[oppIndex], {
+                                google_drive_folder_id: folder.id,
+                                google_drive_folder_url: folder.url,
+                                google_drive_folder_name: folder.name
+                            });
+                        }
+                    } else {
+                        const text = await folderRes.text().catch(() => '');
+                        console.warn(`⚠️ [AUTO-FOLDER] Folder creation failed (${folderRes.status}):`, text);
+                        // Do not fail create flow
+                    }
+                } catch (folderErr) {
+                    console.warn('⚠️ [AUTO-FOLDER] Folder creation attempt threw (non-blocking):', folderErr?.message || folderErr);
+                }
+            }
             
             // Automatic Google Drive folder linking for imported data
             if (window.importedFolderData && newOpportunity.uid) {
