@@ -4728,6 +4728,54 @@ app.delete('/api/opportunities/:uid', authenticateToken, async (req, res) => {
 
 // === GOOGLE DRIVE API ENDPOINTS ===
 
+// Google Drive diagnostics (checks env + access to root folder)
+app.get('/api/google-drive/diagnostics', authenticateToken, async (req, res) => {
+  try {
+    const hasServiceAccountKey = !!process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
+    const hasRootFolderId = !!process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID;
+    const hasTemplateFolderId = !!process.env.GOOGLE_DRIVE_TEMPLATE_FOLDER_ID;
+
+    const driveService = new GoogleDriveService();
+    const initialized = await driveService.initialize();
+
+    let rootFolderAccessible = null;
+    let rootFolderError = null;
+
+    if (initialized && hasRootFolderId) {
+      try {
+        await driveService.validateRootFolderAccess();
+        rootFolderAccessible = true;
+      } catch (e) {
+        rootFolderAccessible = false;
+        rootFolderError = e.message;
+      }
+    }
+
+    res.json({
+      success: true,
+      initialized,
+      serviceAccountEmail: driveService.serviceAccountEmail || null,
+      env: {
+        hasServiceAccountKey,
+        hasRootFolderId,
+        hasTemplateFolderId,
+        googleDriveAutoShare: process.env.GOOGLE_DRIVE_AUTO_SHARE || null
+      },
+      rootFolder: {
+        id: process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID || null,
+        accessible: rootFolderAccessible,
+        error: rootFolderError
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: 'Google Drive diagnostics failed',
+      message: error.message
+    });
+  }
+});
+
 // Create Google Drive folder for an opportunity
 app.post('/api/opportunities/:uid/drive-folder', authenticateToken, async (req, res) => {
   const { uid } = req.params;

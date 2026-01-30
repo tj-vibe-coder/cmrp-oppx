@@ -43,6 +43,8 @@ class GoogleDriveService {
   constructor() {
     this.auth = null;
     this.drive = null;
+    this.serviceAccountEmail = null;
+    this._rootFolderValidated = false;
   }
 
   async initialize() {
@@ -58,6 +60,7 @@ class GoogleDriveService {
         console.log('🔑 Using service account key from environment variables');
         // Parse the service account key from environment variable
         const credentials = JSON.parse(serviceAccountKey);
+        this.serviceAccountEmail = credentials?.client_email || null;
         
         authConfig = {
           credentials: credentials,
@@ -97,6 +100,43 @@ class GoogleDriveService {
         console.error('💡 Hint: Make sure GOOGLE_SERVICE_ACCOUNT_KEY environment variable is set in production');
       }
       return false;
+    }
+  }
+
+  async validateRootFolderAccess() {
+    if (this._rootFolderValidated) return true;
+    this._rootFolderValidated = true;
+
+    const rootId = GOOGLE_DRIVE_CONFIG.rootFolderId;
+    if (!rootId) return true; // no configured parent folder
+    if (!this.drive) throw new Error('Google Drive API not initialized');
+
+    try {
+      const resp = await this.drive.files.get({
+        fileId: rootId,
+        fields: 'id, name, mimeType'
+      });
+
+      if (resp?.data?.mimeType !== 'application/vnd.google-apps.folder') {
+        throw new Error(`GOOGLE_DRIVE_ROOT_FOLDER_ID is not a folder (mimeType=${resp?.data?.mimeType || 'unknown'})`);
+      }
+
+      console.log(`✅ [DRIVE] Root folder accessible: ${resp.data.name} (${resp.data.id})`);
+      return true;
+    } catch (error) {
+      const emailHint = this.serviceAccountEmail
+        ? ` Share the folder with service account: ${this.serviceAccountEmail}`
+        : ' Share the folder with the service account used by GOOGLE_SERVICE_ACCOUNT_KEY.';
+
+      // Common Drive errors here are 404 (file not found / no access) or 403 (insufficient permissions)
+      const code = error?.code || error?.response?.status;
+      const msg =
+        `Cannot access GOOGLE_DRIVE_ROOT_FOLDER_ID (${rootId}).` +
+        ` Drive API returned ${code || 'error'}.` +
+        ` ${error.message}.` +
+        emailHint;
+
+      throw new Error(msg);
     }
   }
 
@@ -324,6 +364,9 @@ class GoogleDriveService {
       if (!GOOGLE_DRIVE_CONFIG.rootFolderId) {
         return null; // Use Drive root
       }
+
+      // Validate configured root folder is accessible (otherwise folder creation will fail)
+      await this.validateRootFolderAccess();
 
       let parentFolderId = GOOGLE_DRIVE_CONFIG.rootFolderId;
 
