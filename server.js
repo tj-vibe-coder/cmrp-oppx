@@ -4726,6 +4726,7 @@ app.get('/api/google-drive/diagnostics', driveDiagnosticsAuth, async (req, res) 
     const hasServiceAccountKey = !!process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
     const hasRootFolderId = !!process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID;
     const hasTemplateFolderId = !!process.env.GOOGLE_DRIVE_TEMPLATE_FOLDER_ID;
+    const hasCredentialsPath = !!process.env.GOOGLE_DRIVE_CREDENTIALS_PATH;
 
     const driveService = new GoogleDriveService();
     const initialized = await driveService.initialize();
@@ -4749,6 +4750,7 @@ app.get('/api/google-drive/diagnostics', driveDiagnosticsAuth, async (req, res) 
       serviceAccountEmail: driveService.serviceAccountEmail || null,
       env: {
         hasServiceAccountKey,
+        hasCredentialsPath,
         hasRootFolderId,
         hasTemplateFolderId,
         googleDriveAutoShare: process.env.GOOGLE_DRIVE_AUTO_SHARE || null

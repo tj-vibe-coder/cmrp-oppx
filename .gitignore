@@ -61,6 +61,7 @@ jspm_packages/
 
 # Google Drive credentials - SECURITY SENSITIVE
 google-drive-credentials.json
+app-attachment-*.json
 
 # Backup files
 *.backup

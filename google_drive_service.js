@@ -1,6 +1,7 @@
 const { google } = require('googleapis');
 const db = require('./db_adapter');
 require('dotenv').config();
+const fs = require('fs');
 
 // Initialize database connection (will use db_adapter for SQLiteCloud/PostgreSQL/SQLite)
 // Note: Database should already be initialized by server.js, but we ensure it's ready
@@ -72,6 +73,18 @@ class GoogleDriveService {
         };
       } else {
         console.log('🔑 Using keyFile from local credentials path');
+        // Try to read service account email from keyFile (for diagnostics and clearer errors)
+        try {
+          const keyPath = GOOGLE_DRIVE_CONFIG.credentialsPath;
+          if (keyPath && fs.existsSync(keyPath)) {
+            const raw = fs.readFileSync(keyPath, 'utf8');
+            const creds = JSON.parse(raw);
+            this.serviceAccountEmail = creds?.client_email || this.serviceAccountEmail;
+          }
+        } catch (e) {
+          // Non-fatal; keep going with keyFile auth
+        }
+
         // Fallback to keyFile for local development
         authConfig = {
           keyFile: GOOGLE_DRIVE_CONFIG.credentialsPath,
