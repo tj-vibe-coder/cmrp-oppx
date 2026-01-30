@@ -19,6 +19,30 @@ const cors = require('cors');
 const app = express();
 const port = process.env.PORT || 3000; // Use environment port for Render
 
+// --- Helpers ---
+function safeParseRoles(rawRoles) {
+  if (!rawRoles) return [];
+  if (Array.isArray(rawRoles)) return rawRoles.filter(Boolean);
+
+  if (typeof rawRoles !== 'string') return [];
+
+  const s = rawRoles.trim();
+  if (!s) return [];
+
+  // Try JSON first (e.g. '["AM","SE"]')
+  try {
+    const parsed = JSON.parse(s);
+    if (Array.isArray(parsed)) return parsed.filter(Boolean);
+    if (typeof parsed === 'string' && parsed.trim()) return [parsed.trim()];
+  } catch (_e) {
+    // fall through to string parsing
+  }
+
+  // Fallback: comma-separated (e.g. 'AM, SE') or single value (e.g. 'AM')
+  if (s.includes(',')) return s.split(',').map(r => r.trim()).filter(Boolean);
+  return [s];
+}
+
 // Import routes
 const snapshotsRouter = require('./backend/routes/snapshots');
 const flexibleSnapshotsRouter = require('./backend/routes/flexible-snapshots');
@@ -274,7 +298,7 @@ app.post('/api/login', express.json(), async (req, res) => {
                 id: user.id,
                 email: user.email,
                 name: user.name,
-                roles: (typeof user.roles === "string" ? JSON.parse(user.roles) : user.roles) || [],
+                roles: safeParseRoles(user.roles),
                 accountType: user.account_type
             }, JWT_SECRET, { expiresIn: '24h' });
 
@@ -340,7 +364,7 @@ app.post('/api/login', express.json(), async (req, res) => {
                 id: user.id,
                 email: user.email,
                 name: user.name,
-                roles: (typeof user.roles === "string" ? JSON.parse(user.roles) : user.roles) || [],
+                roles: safeParseRoles(user.roles),
                 accountType: user.account_type
             }, JWT_SECRET, { expiresIn: '24h' });
 
