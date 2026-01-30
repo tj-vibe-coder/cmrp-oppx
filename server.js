@@ -1926,7 +1926,9 @@ app.get('/api/opportunities/check-project-code', authenticateToken, async (req, 
   }
 });
 
-app.get('/api/next-project-code', authenticateToken, async (req, res) => {
+// In development, allow without auth for easier debugging
+const nextProjectCodeAuth = (process.env.NODE_ENV === 'production') ? authenticateToken : (req, _res, next) => next();
+app.get('/api/next-project-code', nextProjectCodeAuth, async (req, res) => {
   console.log('[API /api/next-project-code] Request received');
   
   try {
@@ -1998,7 +2000,12 @@ app.get('/api/next-project-code', authenticateToken, async (req, res) => {
     res.json({ 
       nextProjectCode: nextCode,
       existingCodesFound: existingCodes.length,
-      highestSequence: highestSequence
+      highestSequence: highestSequence,
+      debug: {
+        source: 'google-drive',
+        yearMonth: `${currentYear}${currentMonth}`,
+        rootFolderId: process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID || null
+      }
     });
     
   } catch (error) {
@@ -2035,7 +2042,13 @@ app.get('/api/next-project-code', authenticateToken, async (req, res) => {
         nextProjectCode: nextCode,
         fallbackUsed: true,
         maxSeq: maxSeq,
-        warning: 'Google Drive scan failed, using database fallback'
+        warning: 'Google Drive scan failed, using database fallback',
+        debug: {
+          source: 'database',
+          dbType: db.getDBType?.() || null,
+          yearMonth: `${currentYear}${currentMonth}`,
+          prefix
+        }
       });
       
     } catch (fallbackError) {
