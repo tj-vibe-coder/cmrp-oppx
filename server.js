@@ -4729,7 +4729,9 @@ app.delete('/api/opportunities/:uid', authenticateToken, async (req, res) => {
 // === GOOGLE DRIVE API ENDPOINTS ===
 
 // Google Drive diagnostics (checks env + access to root folder)
-app.get('/api/google-drive/diagnostics', authenticateToken, async (req, res) => {
+// In development, allow access without auth to simplify local debugging.
+const driveDiagnosticsAuth = (process.env.NODE_ENV === 'production') ? authenticateToken : (req, _res, next) => next();
+app.get('/api/google-drive/diagnostics', driveDiagnosticsAuth, async (req, res) => {
   try {
     const hasServiceAccountKey = !!process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
     const hasRootFolderId = !!process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID;
