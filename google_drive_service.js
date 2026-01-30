@@ -48,6 +48,34 @@ class GoogleDriveService {
     this._rootFolderValidated = false;
   }
 
+  _isServiceAccountQuotaError(error) {
+    const msg = String(error?.message || '').toLowerCase();
+    if (msg.includes('service accounts do not have storage quota')) return true;
+    if (msg.includes('storage quota')) return true;
+    const reason = error?.response?.data?.error?.errors?.[0]?.reason;
+    if (reason === 'storageQuotaExceeded' || reason === 'quotaExceeded') return true;
+    return false;
+  }
+
+  async _createShortcut(targetFile, destinationFolderId) {
+    const targetId = targetFile?.id;
+    const targetName = targetFile?.name || 'Shortcut';
+    if (!targetId) throw new Error('Cannot create shortcut: missing target id');
+
+    const resp = await this.drive.files.create({
+      supportsAllDrives: true,
+      resource: {
+        name: targetName,
+        mimeType: 'application/vnd.google-apps.shortcut',
+        parents: [destinationFolderId],
+        shortcutDetails: { targetId }
+      },
+      fields: 'id, name'
+    });
+
+    return resp.data;
+  }
+
   async initialize() {
     try {
       console.log('🔑 Initializing Google Drive API...');
@@ -118,7 +146,6 @@ class GoogleDriveService {
 
   async validateRootFolderAccess() {
     if (this._rootFolderValidated) return true;
-    this._rootFolderValidated = true;
 
     const rootId = GOOGLE_DRIVE_CONFIG.rootFolderId;
     if (!rootId) return true; // no configured parent folder
@@ -127,6 +154,8 @@ class GoogleDriveService {
     try {
       const resp = await this.drive.files.get({
         fileId: rootId,
+        // Root folder is often in a Shared Drive; without this, Drive returns 404.
+        supportsAllDrives: true,
         fields: 'id, name, mimeType'
       });
 
@@ -135,6 +164,7 @@ class GoogleDriveService {
       }
 
       console.log(`✅ [DRIVE] Root folder accessible: ${resp.data.name} (${resp.data.id})`);
+      this._rootFolderValidated = true;
       return true;
     } catch (error) {
       const emailHint = this.serviceAccountEmail
@@ -187,6 +217,7 @@ class GoogleDriveService {
       console.log(`[CREATE-FOLDER] Creating folder with metadata:`, JSON.stringify(folderMetadata, null, 2));
       const response = await this.drive.files.create({
         resource: folderMetadata,
+        supportsAllDrives: true,
         fields: 'id, name, webViewLink'
       });
 
@@ -250,6 +281,7 @@ class GoogleDriveService {
         console.log(`[LINK] Attempting to get folder info from Google Drive API...`);
         response = await this.drive.files.get({
           fileId: cleanFolderId,
+          supportsAllDrives: true,
           fields: 'id, name, webViewLink, mimeType'
         });
         console.log(`[LINK] Successfully retrieved folder info: ${response.data.name}`);
@@ -398,8 +430,11 @@ class GoogleDriveService {
       return parentFolderId;
 
     } catch (error) {
-      console.warn(`⚠️ Could not create parent folder structure: ${error.message}`);
-      return GOOGLE_DRIVE_CONFIG.rootFolderId; // Fallback to root
+      console.warn(`⚠️ Could not use configured Drive root folder: ${error.message}`);
+      console.warn(`⚠️ Falling back to service account Drive root (no parent). To fix, share GOOGLE_DRIVE_ROOT_FOLDER_ID with: ${this.serviceAccountEmail || 'the service account'}`);
+      // IMPORTANT: returning the inaccessible folderId causes Drive API "File not found" on create.
+      // Fallback to no parent to still create the folder (it will land in the service account Drive).
+      return null;
     }
   }
 
@@ -408,6 +443,8 @@ class GoogleDriveService {
       // First, check if folder already exists
       const searchResponse = await this.drive.files.list({
         q: `parents in '${parentId}' and mimeType='application/vnd.google-apps.folder' and name='${folderName}' and trashed=false`,
+        includeItemsFromAllDrives: true,
+        supportsAllDrives: true,
         fields: 'files(id, name)'
       });
 
@@ -422,6 +459,7 @@ class GoogleDriveService {
           mimeType: 'application/vnd.google-apps.folder',
           parents: [parentId]
         },
+        supportsAllDrives: true,
         fields: 'id'
       });
 
@@ -440,6 +478,7 @@ class GoogleDriveService {
       if (process.env.GOOGLE_DRIVE_AUTO_SHARE === 'true') {
         await this.drive.permissions.create({
           fileId: folderId,
+          supportsAllDrives: true,
           resource: {
             role: 'reader',
             type: 'anyone'
@@ -520,6 +559,7 @@ class GoogleDriveService {
 
       const response = await this.drive.files.get({
         fileId: folderId,
+        supportsAllDrives: true,
         fields: 'id, name, webViewLink, createdTime, modifiedTime, size'
       });
 
@@ -569,6 +609,7 @@ class GoogleDriveService {
 
       const response = await this.drive.files.get({
         fileId: cleanFolderId,
+        supportsAllDrives: true,
         fields: 'id, name, mimeType, permissions'
       });
 
@@ -631,6 +672,8 @@ class GoogleDriveService {
       // Search globally for folders containing the search query
       const globalSearchResponse = await this.drive.files.list({
         q: `mimeType='application/vnd.google-apps.folder' and name contains '${searchQuery}' and trashed=false`,
+        includeItemsFromAllDrives: true,
+        supportsAllDrives: true,
         fields: 'files(id, name, webViewLink, createdTime, parents)',
         pageSize: maxResults,
         orderBy: 'modifiedTime desc'
@@ -645,6 +688,8 @@ class GoogleDriveService {
         try {
           const op100SearchResponse = await this.drive.files.list({
             q: `parents in '${GOOGLE_DRIVE_CONFIG.op100FolderId}' and mimeType='application/vnd.google-apps.folder' and name contains '${searchQuery}' and trashed=false`,
+            includeItemsFromAllDrives: true,
+            supportsAllDrives: true,
             fields: 'files(id, name, webViewLink, createdTime, parents)',
             pageSize: maxResults,
             orderBy: 'modifiedTime desc'
@@ -798,27 +843,73 @@ class GoogleDriveService {
         parents: parentFolderId ? [parentFolderId] : undefined
       };
 
+      let newFolder = null;
       const response = await this.drive.files.create({
         resource: folderMetadata,
+        supportsAllDrives: true,
         fields: 'id, name, webViewLink'
       });
 
-      const newFolder = response.data;
+      newFolder = response.data;
       console.log(`✅ Created main folder: ${newFolder.name} (ID: ${newFolder.id})`);
 
-      // Copy contents from template folder
-      await this.copyFolderContents(GOOGLE_DRIVE_CONFIG.templateFolderId, newFolder.id);
+      // Link folder to opportunity ASAP so user sees it even if templating fails
+      // (templating can fail due to service-account quota unless using Shared Drives).
+      try {
+        await this.updateOpportunityWithFolder(opportunityData.uid, {
+          folderId: newFolder.id,
+          folderUrl: newFolder.webViewLink,
+          folderName: newFolder.name,
+          createdBy: createdBy
+        });
+      } catch (linkErr) {
+        // If DB update fails, we should not proceed with templating.
+        throw linkErr;
+      }
+
+      // Copy contents from template folder (REAL copies; quota restrictions will be reported in summary)
+      try {
+        const copySummary = await this.copyFolderContents(GOOGLE_DRIVE_CONFIG.templateFolderId, newFolder.id);
+        if (copySummary?.filesFailed > 0) {
+          try {
+            await this.setFolderPermissions(newFolder.id);
+          } catch (permErr) {
+            console.warn(`⚠️ [TEMPLATE] Failed to set permissions after partial copy (non-fatal): ${permErr.message}`);
+          }
+
+          return {
+            id: newFolder.id,
+            name: newFolder.name,
+            url: newFolder.webViewLink,
+            success: true,
+            templated: false,
+            warning:
+              `Template copy incomplete: ${copySummary.filesFailed} file(s) failed to copy. ` +
+              `This happens when the destination is not in a Shared Drive for service accounts.`,
+            copySummary
+          };
+        }
+      } catch (copyErr) {
+        // Keep the folder (already linked) but return a clear warning.
+        // The user can fix this by using a Shared Drive for root/template and retrying later.
+        try {
+          await this.setFolderPermissions(newFolder.id);
+        } catch (permErr) {
+          console.warn(`⚠️ [TEMPLATE] Failed to set permissions after copy failure (non-fatal): ${permErr.message}`);
+        }
+
+        return {
+          id: newFolder.id,
+          name: newFolder.name,
+          url: newFolder.webViewLink,
+          success: true,
+          templated: false,
+          warning: `Template copy failed: ${copyErr.message}`
+        };
+      }
 
       // Set folder permissions
       await this.setFolderPermissions(newFolder.id);
-
-      // Update database with folder information
-      await this.updateOpportunityWithFolder(opportunityData.uid, {
-        folderId: newFolder.id,
-        folderUrl: newFolder.webViewLink,
-        folderName: newFolder.name,
-        createdBy: createdBy
-      });
 
       return {
         id: newFolder.id,
@@ -843,9 +934,19 @@ class GoogleDriveService {
     try {
       console.log(`📂 Copying contents from template folder...`);
 
+      // Track copy progress and failures (especially useful when quota/permissions block specific files)
+      const summary = {
+        foldersCreated: 0,
+        filesCopied: 0,
+        filesFailed: 0,
+        failures: [] // { id, name, reason }
+      };
+
       // List all files and folders in the source folder
       const listResponse = await this.drive.files.list({
         q: `parents in '${sourceFolderId}' and trashed=false`,
+        includeItemsFromAllDrives: true,
+        supportsAllDrives: true,
         fields: 'files(id, name, mimeType, parents)'
       });
 
@@ -863,13 +964,21 @@ class GoogleDriveService {
 
           const subFolderResponse = await this.drive.files.create({
             resource: subFolderMetadata,
+            supportsAllDrives: true,
             fields: 'id, name'
           });
 
           console.log(`📁 Created subfolder: ${subFolderResponse.data.name}`);
+          summary.foldersCreated += 1;
           
           // Recursively copy subfolder contents
-          await this.copyFolderContents(item.id, subFolderResponse.data.id);
+          const subSummary = await this.copyFolderContents(item.id, subFolderResponse.data.id);
+          summary.foldersCreated += subSummary.foldersCreated || 0;
+          summary.filesCopied += subSummary.filesCopied || 0;
+          summary.filesFailed += subSummary.filesFailed || 0;
+          if (Array.isArray(subSummary.failures) && subSummary.failures.length > 0) {
+            summary.failures.push(...subSummary.failures);
+          }
 
         } else {
           // It's a file - copy it
@@ -878,17 +987,43 @@ class GoogleDriveService {
             parents: [destinationFolderId]
           };
 
-          await this.drive.files.copy({
-            fileId: item.id,
-            resource: fileMetadata,
-            fields: 'id, name'
-          });
-
-          console.log(`📄 Copied file: ${item.name}`);
+          try {
+            await this.drive.files.copy({
+              fileId: item.id,
+              resource: fileMetadata,
+              supportsAllDrives: true,
+              fields: 'id, name'
+            });
+            console.log(`📄 Copied file: ${item.name}`);
+            summary.filesCopied += 1;
+          } catch (copyErr) {
+            if (this._isServiceAccountQuotaError(copyErr)) {
+              // Continue copying structure, but record the failure.
+              // NOTE: This will happen when the destination is not in a Shared Drive for service accounts.
+              summary.filesFailed += 1;
+              summary.failures.push({
+                id: item.id,
+                name: item.name,
+                reason:
+                  'Service Account has no storage quota for real copies. ' +
+                  'Move root/template into a Shared Drive (and add service account as member) to enable real copies.'
+              });
+              console.warn(`⚠️ [TEMPLATE] Failed to copy (quota): ${item.name}`);
+              continue;
+            }
+            throw copyErr;
+          }
         }
       }
 
       console.log('✅ Template folder contents copied successfully');
+      if (summary.filesFailed > 0) {
+        console.warn(
+          `⚠️ [TEMPLATE] Copy completed with missing files: ` +
+          `${summary.filesCopied} copied, ${summary.filesFailed} failed.`
+        );
+      }
+      return summary;
 
     } catch (error) {
       console.error('❌ Failed to copy folder contents:', error.message);
@@ -909,6 +1044,8 @@ class GoogleDriveService {
       // Search for "Calcsheet" folder within the main folder
       const searchResponse = await this.drive.files.list({
         q: `parents in '${mainFolderId}' and mimeType='application/vnd.google-apps.folder' and name contains 'Calcsheet' and trashed=false`,
+        includeItemsFromAllDrives: true,
+        supportsAllDrives: true,
         fields: 'files(id, name, webViewLink)'
       });
 
@@ -946,6 +1083,8 @@ class GoogleDriveService {
       // Search for Excel files matching the CMRP pattern
       const searchResponse = await this.drive.files.list({
         q: `parents in '${folderId}' and (name contains '${filePattern}' and (name contains '.xlsx' or name contains '.xls')) and trashed=false`,
+        includeItemsFromAllDrives: true,
+        supportsAllDrives: true,
         fields: 'files(id, name, size, modifiedTime, createdTime)',
         orderBy: 'modifiedTime desc'
       });
@@ -1200,6 +1339,7 @@ class GoogleDriveService {
       // First, get folder information
       const folderResponse = await this.drive.files.get({
         fileId: folderId,
+        supportsAllDrives: true,
         fields: 'id, name, webViewLink, parents'
       });
 
@@ -1356,6 +1496,7 @@ class GoogleDriveService {
         if (!folder) {
           const folderResponse = await this.drive.files.get({
             fileId: folderId,
+            supportsAllDrives: true,
             fields: 'id, name, webViewLink, parents'
           });
           folder = folderResponse.data;
@@ -1554,6 +1695,7 @@ class GoogleDriveService {
       // Get folder information first
       const folderInfo = await this.drive.files.get({
         fileId: folderId,
+        supportsAllDrives: true,
         fields: 'id, name, webViewLink, createdTime, modifiedTime, size'
       });
 
@@ -1562,6 +1704,8 @@ class GoogleDriveService {
         q: `parents in '${folderId}' and trashed=false`,
         orderBy: orderBy,
         pageSize: maxResults,
+        includeItemsFromAllDrives: true,
+        supportsAllDrives: true,
         fields: 'files(id, name, mimeType, webViewLink, webContentLink, iconLink, createdTime, modifiedTime, size, parents, thumbnailLink, description), nextPageToken'
       });
 

@@ -1947,7 +1947,9 @@ app.get('/api/next-project-code', nextProjectCodeAuth, async (req, res) => {
     const listResponse = await driveService.drive.files.list({
       q: `parents in '${process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID}' and mimeType='application/vnd.google-apps.folder' and name contains 'CMRP' and trashed=false`,
       fields: 'files(id, name)',
-      pageSize: 1000 // Get up to 1000 folders
+      pageSize: 1000, // Get up to 1000 folders
+      includeItemsFromAllDrives: true,
+      supportsAllDrives: true
     });
     
     const folders = listResponse.data.files || [];
@@ -1984,27 +1986,56 @@ app.get('/api/next-project-code', nextProjectCodeAuth, async (req, res) => {
         }
       }
     });
+
+    // ALSO check the database for current YYMM max sequence.
+    // Reason: Drive scan can legitimately return 0 current-month codes (or scan the wrong folder),
+    // but the DB may already have many codes. If we only trust Drive, we can incorrectly return ...0001.
+    let dbMaxSeq = 0;
+    try {
+      const prefix = `CMRP${currentYear}${currentMonth}`;
+      const seqResult = await db.query(
+        `
+          SELECT MAX(CAST(SUBSTR(project_code, 9, 4) AS INTEGER)) AS max_seq
+          FROM opps_monitoring
+          WHERE project_code IS NOT NULL
+            AND project_code LIKE ?
+            AND LENGTH(project_code) >= 12
+        `,
+        [`${prefix}%`]
+      );
+      const maxSeqRaw = seqResult.rows?.[0]?.max_seq;
+      dbMaxSeq = Number.isFinite(Number(maxSeqRaw)) ? Number(maxSeqRaw) : 0;
+    } catch (dbSeqErr) {
+      console.warn('[API] Could not compute DB max sequence (non-fatal):', dbSeqErr?.message || dbSeqErr);
+    }
+
+    const finalHighestSequence = Math.max(highestSequence || 0, dbMaxSeq || 0);
     
     // Generate next code
-    const nextSequence = (highestSequence + 1).toString().padStart(4, '0');
+    const nextSequence = (finalHighestSequence + 1).toString().padStart(4, '0');
     nextCode = `CMRP${currentYear}${currentMonth}${nextSequence}`;
     
     // Double-check that this code doesn't already exist
     while (existingCodes.includes(nextCode)) {
       highestSequence++;
-      const nextSequence = (highestSequence + 1).toString().padStart(4, '0');
+      const nextSequence = (Math.max(finalHighestSequence, highestSequence) + 1).toString().padStart(4, '0');
       nextCode = `CMRP${currentYear}${currentMonth}${nextSequence}`;
     }
     
-    console.log(`[API] Generated next project code: ${nextCode} (highest existing sequence: ${highestSequence})`);
+    console.log(`[API] Generated next project code: ${nextCode} (driveHighest: ${highestSequence}, dbMax: ${dbMaxSeq}, finalHighest: ${finalHighestSequence})`);
     res.json({ 
       nextProjectCode: nextCode,
       existingCodesFound: existingCodes.length,
-      highestSequence: highestSequence,
+      highestSequence: finalHighestSequence,
       debug: {
         source: 'google-drive',
         yearMonth: `${currentYear}${currentMonth}`,
-        rootFolderId: process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID || null
+        rootFolderId: process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID || null,
+        driveFoldersFound: folders.length,
+        driveCodesFound: existingCodes.length,
+        driveHighestSequence: highestSequence,
+        dbMaxSeq,
+        finalHighestSequence
       }
     });
     
@@ -2880,10 +2911,11 @@ app.post('/api/opportunities', authenticateToken,
             const createdBy = req.user?.name || req.user?.email || 'SYSTEM';
             console.log(`[FOLDER-CREATE] Created by: ${createdBy}`);
             
-            const folderResult = await driveService.createFolderForOpportunity(
-              createdOpp, 
-              createdBy
-            );
+            // Create folder and copy template contents if configured
+            const folderResult = await driveService.duplicateTemplateFolder(createdOpp, createdBy);
+            if (!folderResult || folderResult.success === false) {
+              throw new Error(folderResult?.error || 'Failed to create templated Drive folder');
+            }
             console.log(`✅ [FOLDER-CREATE] Auto-created Google Drive folder: ${folderResult.name} (ID: ${folderResult.id})`);
             
             // Refresh createdOpp with folder info
@@ -4814,10 +4846,14 @@ app.post('/api/opportunities/:uid/drive-folder', authenticateToken, async (req, 
     const driveService = new GoogleDriveService();
     await driveService.initialize();
 
-    const folderResult = await driveService.createFolderForOpportunity(
-      opportunity, 
+    const folderResult = await driveService.duplicateTemplateFolder(
+      opportunity,
       req.user.name || req.user.email
     );
+
+    if (!folderResult || folderResult.success === false) {
+      throw new Error(folderResult?.error || 'Failed to create templated Drive folder');
+    }
 
     res.json({
       success: true,
