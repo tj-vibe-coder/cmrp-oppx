@@ -213,6 +213,15 @@ let pool; // Keep for compatibility
   try {
     pool = await db.initDatabase();
     console.log('✅ Database initialized successfully');
+
+    // Performance: ensure common indexes exist (safe no-op if already present).
+    // This can significantly reduce login latency on remote SQLiteCloud.
+    try {
+      await db.query('CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)');
+      console.log('✅ [DB] Ensured index: idx_users_email');
+    } catch (idxErr) {
+      console.warn('⚠️ [DB] Could not create idx_users_email (non-fatal):', idxErr.message);
+    }
     
     // Test write capability
     try {
@@ -275,11 +284,15 @@ app.post('/api/login', express.json(), async (req, res) => {
 
             console.log(`[DEV MODE] Mock login for: ${email}`);
 
-            // Query the database to get real user data
+            const t0 = Date.now();
+            const normalizedEmail = String(email || '').toLowerCase().trim();
+
+            // Query the database to get real user data (avoid SELECT * for speed)
             const result = await db.query(
-                'SELECT * FROM users WHERE email = ?',
-                [email.toLowerCase()]
+                'SELECT id, email, name, roles, account_type FROM users WHERE email = ? LIMIT 1',
+                [normalizedEmail]
             );
+            console.log(`[LOGIN] DB lookup (mock) took ${Date.now() - t0}ms`);
 
             const user = result.rows[0];
 
@@ -314,11 +327,16 @@ app.post('/api/login', express.json(), async (req, res) => {
                 return res.status(400).json({ error: 'Email and password are required' });
             }
 
-            // Query the database
+            const t0 = Date.now();
+            const normalizedEmail = String(email).toLowerCase().trim();
+
+            // Query the database (avoid SELECT * for speed)
             const result = await db.query(
-                'SELECT * FROM users WHERE email = ?',
-                [email.toLowerCase()]
+                'SELECT id, email, name, password_hash, roles, account_type FROM users WHERE email = ? LIMIT 1',
+                [normalizedEmail]
             );
+            const tDb = Date.now();
+            console.log(`[LOGIN] DB lookup took ${tDb - t0}ms (email=${normalizedEmail})`);
 
             const user = result.rows[0];
 
@@ -347,6 +365,8 @@ app.post('/api/login', express.json(), async (req, res) => {
                 console.error(`[LOGIN] Bcrypt comparison error for user ${user.email}:`, bcryptError);
                 return res.status(401).json({ error: 'Invalid credentials' });
             }
+            const tBcrypt = Date.now();
+            console.log(`[LOGIN] bcrypt.compare took ${tBcrypt - tDb}ms (total ${tBcrypt - t0}ms)`);
 
             if (!isPasswordValid) {
                 console.log(`[LOGIN] Password mismatch for user: ${user.email}`);
