@@ -796,8 +796,9 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
     <script src="filter-label-fix.js"></script>
-    <script src="executive_dashboard.js" defer></script>
-    <script src="executive_dashboard_init.js" defer></script>
+    <!-- Cache-bust dashboard scripts to avoid stale Render/browser caches -->
+    <script src="executive_dashboard.js?v=20260130" defer></script>
+    <script src="executive_dashboard_init.js?v=20260130" defer></script>
 
     <!-- External Scripts for User Info and Navigation -->
 

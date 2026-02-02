@@ -5,8 +5,13 @@ function getApiUrl(endpoint) {
     if (typeof window !== 'undefined' && window.APP_CONFIG) {
         return window.APP_CONFIG.API_BASE_URL + endpoint;
     }
-    // Fallback for development
-    return (window.location.hostname === 'localhost' ? 'http://localhost:3000' : 'https://cmrp-opps-backend.onrender.com') + endpoint;
+    // Fallback: use same-origin in production (Render monolith),
+    // and localhost when running locally. Avoid calling unrelated origins that CSP may block.
+    const base =
+        (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+            ? 'http://localhost:3000'
+            : window.location.origin;
+    return base + endpoint;
 }
 
 // --- Global Variables ---
