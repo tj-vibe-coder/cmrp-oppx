@@ -3160,12 +3160,16 @@ function getFieldOptions(field) {
         case 'account_mgr':
             // Get values from dropdownOptions if available, otherwise return empty array with blank option
             return dropdownOptions.accountmgr ? ['', ...dropdownOptions.accountmgr] : [''];
-        case 'pic':
-            // Get values from dropdownOptions if available, otherwise return empty array with blank option
-            return dropdownOptions.pic ? ['', ...dropdownOptions.pic] : [''];
-        case 'bom':
-            // Get values from dropdownOptions if available, otherwise return empty array with blank option
-            return dropdownOptions.bom ? ['', ...dropdownOptions.bom] : [''];
+        case 'pic': {
+            const picList = dropdownOptions.pic ? [...dropdownOptions.pic] : [];
+            if (!picList.includes('ASP')) picList.push('ASP');
+            return ['', ...picList.sort()];
+        }
+        case 'bom': {
+            const bomList = dropdownOptions.bom ? [...dropdownOptions.bom] : [];
+            if (!bomList.includes('ASP')) bomList.push('ASP');
+            return ['', ...bomList.sort()];
+        }
         default:
             return [];
     }
@@ -4435,6 +4439,7 @@ function getDropdownOptions(headersToUse, data) {
                     });
                 }
             }
+            values.add('ASP');
         }
         else if (normField === 'bom') {
             for (let i = 0; i < headersToUse.length; i++) {
@@ -4445,6 +4450,7 @@ function getDropdownOptions(headersToUse, data) {
                     });
                 }
             }
+            values.add('ASP');
         }
 
         options[normField] = Array.from(values).sort();

@@ -222,6 +222,25 @@ let pool; // Keep for compatibility
     } catch (idxErr) {
       console.warn('⚠️ [DB] Could not create idx_users_email (non-fatal):', idxErr.message);
     }
+
+    // Ensure clients table exists (Client Management page)
+    try {
+      await db.query(`CREATE TABLE IF NOT EXISTS clients (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        company_name TEXT NOT NULL,
+        contact_person TEXT,
+        email TEXT,
+        company_address TEXT,
+        payment_terms TEXT,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now'))
+      )`);
+      await db.query('CREATE INDEX IF NOT EXISTS idx_clients_company_name ON clients(company_name)');
+      await db.query('CREATE INDEX IF NOT EXISTS idx_clients_email ON clients(email)');
+      console.log('✅ [DB] Ensured table: clients');
+    } catch (clientsErr) {
+      console.warn('⚠️ [DB] Could not ensure clients table (non-fatal):', clientsErr.message);
+    }
     
     // Test write capability
     try {
@@ -3605,6 +3624,9 @@ app.get('/forecastr_dashboard.html', (req, res) => {
 app.get('/update_password.html', (req, res) => {
   res.sendFile(path.join(__dirname, 'update_password.html'));
 });
+app.get('/client_management.html', (req, res) => {
+  res.sendFile(path.join(__dirname, 'client_management.html'));
+});
 
 // --- User Management API (PostgreSQL-backed, schema-aligned) ---
 
@@ -3850,6 +3872,137 @@ app.get('/api/users/mentions', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error fetching users for mentions:', error);
     res.status(500).json({ error: 'Failed to fetch users for mentions.' });
+  }
+});
+
+// --- Clients API (Client Management) ---
+app.get('/api/clients', authenticateToken, async (req, res) => {
+  try {
+    const result = await db.query(
+      'SELECT id, company_name, contact_person, email, company_address, payment_terms, created_at, updated_at FROM clients ORDER BY company_name ASC'
+    );
+    res.json(result.rows || []);
+  } catch (err) {
+    console.error('Error fetching clients:', err);
+    res.status(500).json({ error: 'Failed to fetch clients.' });
+  }
+});
+
+// Sync clients from opportunity list: get all distinct company names from opps_monitoring and add missing to clients
+async function handleClientsSyncFromOpportunities(req, res) {
+  try {
+    const distinct = await db.query(
+      `SELECT DISTINCT TRIM(client) AS company_name FROM opps_monitoring WHERE client IS NOT NULL AND TRIM(client) != '' ORDER BY company_name ASC`
+    );
+    const companies = (distinct.rows || []).map(r => (r.company_name || '').trim()).filter(Boolean);
+    console.log('[CLIENTS-SYNC] Companies from opportunities:', companies.length);
+    companies.forEach(name => console.log('[CLIENTS-SYNC]  -', name));
+
+    const existing = await db.query('SELECT company_name FROM clients');
+    const existingSet = new Set((existing.rows || []).map(r => (r.company_name || '').trim().toLowerCase()));
+
+    let added = 0;
+    for (const companyName of companies) {
+      const key = companyName.trim().toLowerCase();
+      if (!key || existingSet.has(key)) continue;
+      await db.query(
+        `INSERT INTO clients (company_name, contact_person, email, company_address, payment_terms, updated_at) VALUES (?, NULL, NULL, NULL, NULL, datetime('now'))`,
+        [companyName.trim()]
+      );
+      existingSet.add(key);
+      added++;
+    }
+
+    console.log('[CLIENTS-SYNC] Added', added, 'new client(s)');
+    res.json({ synced: companies.length, added, companies });
+  } catch (err) {
+    console.error('Error syncing clients from opportunities:', err);
+    res.status(500).json({ error: 'Failed to sync clients from opportunities.', message: err.message });
+  }
+}
+app.get('/api/clients/sync-from-opportunities', authenticateToken, handleClientsSyncFromOpportunities);
+app.post('/api/clients/sync-from-opportunities', authenticateToken, handleClientsSyncFromOpportunities);
+
+app.get('/api/clients/:id', authenticateToken, async (req, res) => {
+  try {
+    const result = await db.query(
+      'SELECT id, company_name, contact_person, email, company_address, payment_terms, created_at, updated_at FROM clients WHERE id = ?',
+      [req.params.id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Client not found' });
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error fetching client:', err);
+    res.status(500).json({ error: 'Failed to fetch client.' });
+  }
+});
+
+app.post('/api/clients', authenticateToken, [
+  body('company_name').trim().notEmpty().withMessage('Company name is required'),
+  body('contact_person').optional().trim(),
+  body('email').optional().trim().isEmail().withMessage('Invalid email'),
+  body('company_address').optional().trim(),
+  body('payment_terms').optional().trim()
+], async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ error: 'Validation failed', details: errors.array() });
+  }
+  try {
+    const { company_name, contact_person, email, company_address, payment_terms } = req.body;
+    const insertResult = await db.query(
+      `INSERT INTO clients (company_name, contact_person, email, company_address, payment_terms, updated_at)
+       VALUES (?, ?, ?, ?, ?, datetime('now'))`,
+      [company_name || null, contact_person || null, email || null, company_address || null, payment_terms || null]
+    );
+    let id = insertResult.lastID || (insertResult.rows && insertResult.rows[0] && insertResult.rows[0].id);
+    if (!id) {
+      const idRow = await db.query('SELECT last_insert_rowid() as id');
+      id = idRow.rows && idRow.rows[0] && idRow.rows[0].id;
+    }
+    const created = (await db.query('SELECT id, company_name, contact_person, email, company_address, payment_terms, created_at, updated_at FROM clients WHERE id = ?', [id])).rows[0];
+    res.status(201).json(created);
+  } catch (err) {
+    console.error('Error creating client:', err);
+    res.status(500).json({ error: 'Failed to create client.' });
+  }
+});
+
+app.put('/api/clients/:id', authenticateToken, [
+  body('company_name').trim().notEmpty().withMessage('Company name is required'),
+  body('contact_person').optional().trim(),
+  body('email').optional().trim().isEmail().withMessage('Invalid email'),
+  body('company_address').optional().trim(),
+  body('payment_terms').optional().trim()
+], async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ error: 'Validation failed', details: errors.array() });
+  }
+  try {
+    const { company_name, contact_person, email, company_address, payment_terms } = req.body;
+    const id = req.params.id;
+    const result = await db.query(
+      `UPDATE clients SET company_name = ?, contact_person = ?, email = ?, company_address = ?, payment_terms = ?, updated_at = datetime('now') WHERE id = ?`,
+      [company_name || null, contact_person || null, email || null, company_address || null, payment_terms || null, id]
+    );
+    if (result.rowCount === 0) return res.status(404).json({ error: 'Client not found' });
+    const updated = (await db.query('SELECT id, company_name, contact_person, email, company_address, payment_terms, created_at, updated_at FROM clients WHERE id = ?', [id])).rows[0];
+    res.json(updated);
+  } catch (err) {
+    console.error('Error updating client:', err);
+    res.status(500).json({ error: 'Failed to update client.' });
+  }
+});
+
+app.delete('/api/clients/:id', authenticateToken, async (req, res) => {
+  try {
+    const result = await db.query('DELETE FROM clients WHERE id = ?', [req.params.id]);
+    if (result.rowCount === 0) return res.status(404).json({ error: 'Client not found' });
+    res.status(204).send();
+  } catch (err) {
+    console.error('Error deleting client:', err);
+    res.status(500).json({ error: 'Failed to delete client.' });
   }
 });
 

@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Client Management</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <link rel="icon" type="image/svg+xml" href="Logo/CMRP Logo Dark.svg">
+    <link rel="alternate icon" href="Logo/CMRP Logo Light.svg">
+    <link rel="stylesheet" href="styles.css?v=1750741234">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <script src="config.js"></script>
+    <style>
+        .table-responsive-wrapper { overflow-x: auto; }
+        .clients-table { border-collapse: separate; border-spacing: 0; min-width: 100%; }
+        .clients-table th { position: relative; border-right: 1px solid #e5e7eb; }
+        .clients-table th:last-child { border-right: none; }
+        .clients-table td { border-right: 1px solid #e5e7eb; }
+        .clients-table td:last-child { border-right: none; white-space: nowrap; }
+    </style>
+</head>
+<body class="min-h-screen">
+    <div id="shared-topbar"></div>
+    <div id="shared-sidebar"></div>
+
+    <div class="main-content" style="padding-top: 1rem;">
+        <div class="container mx-auto px-4 py-6">
+            <div class="flex justify-between items-center mb-6 flex-wrap gap-2">
+                <h1 class="text-2xl font-bold">Client Management</h1>
+                <div class="flex gap-2">
+                    <button id="syncFromOpportunitiesButton" class="action-button" type="button" title="Import all client companies from the opportunity list">
+                        <span class="material-icons">sync</span>
+                        Import from opportunities
+                    </button>
+                    <button id="addClientButton" class="action-button">
+                        <span class="material-icons">add</span>
+                        Add Client
+                    </button>
+                </div>
+            </div>
+
+            <div class="table-responsive-wrapper">
+                <div class="table-container">
+                    <table id="clientsTable" class="clients-table min-w-full divide-y">
+                        <thead class="sticky-header">
+                            <tr>
+                                <th class="px-3 py-2 text-left">Company Name</th>
+                                <th class="px-3 py-2 text-left">Contact Person</th>
+                                <th class="px-3 py-2 text-left">Email</th>
+                                <th class="px-3 py-2 text-left">Company Address</th>
+                                <th class="px-3 py-2 text-left">Payment Terms</th>
+                                <th class="px-3 py-2 text-left">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="clientTableBody">
+                            <tr>
+                                <td colspan="6" class="text-center p-4 loading-text">Loading clients...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div id="rowCount" class="mt-4 text-sm"></div>
+        </div>
+    </div>
+
+    <div id="clientModalOverlay" class="modal-overlay hidden">
+        <div id="clientModal" class="modal hidden" style="max-width: 600px;">
+            <div class="modal-header">
+                <h2 id="clientModalTitle">Add Client</h2>
+                <button type="button" aria-label="Close" class="modal-close-x">&times;</button>
+            </div>
+            <form id="clientForm" class="modal-body">
+                <input type="hidden" id="clientId" name="clientId">
+                <div class="form-section">
+                    <div class="form-row">
+                        <div class="enhanced-field" style="flex: 1;">
+                            <label for="company_name">Company Name <span class="text-red-500">*</span></label>
+                            <input type="text" id="company_name" name="company_name" required />
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="enhanced-field" style="flex: 1;">
+                            <label for="contact_person">Contact Person</label>
+                            <input type="text" id="contact_person" name="contact_person" />
+                        </div>
+                        <div class="enhanced-field" style="flex: 1;">
+                            <label for="email">Email</label>
+                            <input type="email" id="email" name="email" />
+                        </div>
+                    </div>
+                    <div class="form-row single-column">
+                        <div class="enhanced-field">
+                            <label for="company_address">Company Address</label>
+                            <input type="text" id="company_address" name="company_address" />
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="enhanced-field" style="flex: 1;">
+                            <label for="payment_terms">Payment Terms</label>
+                            <input type="text" id="payment_terms" name="payment_terms" placeholder="e.g. Net 30, 50% advance" />
+                        </div>
+                    </div>
+                </div>
+            </form>
+            <div class="modal-actions">
+                <button type="button" id="clientCancelButton" class="modal-close-btn">Cancel</button>
+                <button type="submit" form="clientForm" class="modal-save-btn">Save Client</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="shared-navigation.js?v=1750741456"></script>
+    <script>
+    function getApiUrl(endpoint) {
+        var base = (window.APP_CONFIG && window.APP_CONFIG.API_BASE_URL) ? window.APP_CONFIG.API_BASE_URL
+            : (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? 'http://localhost:3000' : 'https://cmrp-opps-backend.onrender.com');
+        return base + endpoint;
+    }
+
+    let sharedNav;
+
+    async function initializeApp() {
+        try {
+            if (!window.APP_CONFIG) {
+                window.APP_CONFIG = { API_BASE_URL: getApiUrl(''), ENDPOINTS: { HEARTBEAT: '/api/heartbeat', ONLINE_USERS: '/api/online-users', CLIENTS: '/api/clients' } };
+            }
+            sharedNav = new SharedNavigation();
+            await sharedNav.initialize();
+            await fetchClients();
+            setupEventListeners();
+        } catch (error) {
+            console.error('Error initializing app:', error);
+        }
+    }
+
+    async function fetchClients() {
+        try {
+            const authToken = localStorage.getItem('authToken');
+            if (!authToken) {
+                window.location.href = 'login.html';
+                return;
+            }
+            const response = await fetch(getApiUrl('/api/clients'), {
+                method: 'GET',
+                headers: { 'Authorization': `Bearer ${authToken}`, 'Content-Type': 'application/json' },
+                credentials: 'include'
+            });
+            if (response.status === 403 && typeof sharedNav !== 'undefined' && sharedNav.handleApiError) {
+                if (sharedNav.handleApiError(response)) return;
+            }
+            if (!response.ok) throw new Error('Failed to fetch clients: ' + response.status);
+            const clients = await response.json();
+            populateClientTable(clients);
+            document.getElementById('rowCount').textContent = `Showing ${clients.length} client${clients.length !== 1 ? 's' : ''}`;
+        } catch (error) {
+            console.error('Error fetching clients:', error);
+            const tbody = document.getElementById('clientTableBody');
+            tbody.innerHTML = `<tr><td colspan="6" class="text-center p-4 text-red-600">Error loading clients. ${error.message}</td></tr>`;
+        }
+    }
+
+    function escapeHtml(text) {
+        if (text == null || text === '') return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function populateClientTable(clients) {
+        const tbody = document.getElementById('clientTableBody');
+        tbody.innerHTML = '';
+        if (clients.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center p-4 text-gray-500">No clients found. Add one to get started.</td></tr>';
+            return;
+        }
+        clients.forEach(function (c) {
+            const tr = document.createElement('tr');
+            tr.innerHTML =
+                '<td class="px-3 py-2">' + escapeHtml(c.company_name || '') + '</td>' +
+                '<td class="px-3 py-2">' + escapeHtml(c.contact_person || '') + '</td>' +
+                '<td class="px-3 py-2">' + escapeHtml(c.email || '') + '</td>' +
+                '<td class="px-3 py-2">' + escapeHtml(c.company_address || '') + '</td>' +
+                '<td class="px-3 py-2">' + escapeHtml(c.payment_terms || '') + '</td>' +
+                '<td class="px-3 py-2">' +
+                '<button class="edit-client action-button mr-2" data-client-id="' + escapeHtml(String(c.id)) + '" style="padding: 0.25rem 0.5rem; font-size: 0.875rem;"><span class="material-icons" style="font-size: 1rem;">edit</span> Edit</button> ' +
+                '<button class="delete-client action-button" data-client-id="' + escapeHtml(String(c.id)) + '" style="padding: 0.25rem 0.5rem; font-size: 0.875rem; background-color: #dc2626;"><span class="material-icons" style="font-size: 1rem;">delete</span> Delete</button>' +
+                '</td>';
+            tbody.appendChild(tr);
+        });
+    }
+
+    async function syncFromOpportunities() {
+        var btn = document.getElementById('syncFromOpportunitiesButton');
+        if (btn) btn.disabled = true;
+        try {
+            var authToken = localStorage.getItem('authToken');
+            var response = await fetch(getApiUrl('/api/clients/sync-from-opportunities'), {
+                method: 'GET',
+                headers: { 'Authorization': 'Bearer ' + authToken, 'Content-Type': 'application/json' },
+                credentials: 'include'
+            });
+            if (!response.ok) throw new Error('Sync failed: ' + response.status);
+            var data = await response.json();
+            await fetchClients();
+            alert('Imported ' + data.added + ' new client(s) from opportunities. Total companies in opportunities: ' + data.synced + '.');
+        } catch (e) {
+            console.error('Sync error:', e);
+            alert('Error importing from opportunities: ' + e.message);
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    }
+
+    function setupEventListeners() {
+        var syncBtn = document.getElementById('syncFromOpportunitiesButton');
+        if (syncBtn) syncBtn.addEventListener('click', syncFromOpportunities);
+        document.getElementById('addClientButton').addEventListener('click', function () {
+            document.getElementById('clientForm').reset();
+            document.getElementById('clientId').value = '';
+            document.getElementById('clientModalTitle').textContent = 'Add Client';
+            document.getElementById('clientModalOverlay').classList.remove('hidden');
+            document.getElementById('clientModal').classList.remove('hidden');
+        });
+
+        function closeModal() {
+            document.getElementById('clientModalOverlay').classList.add('hidden');
+            document.getElementById('clientModal').classList.add('hidden');
+        }
+        document.getElementById('clientCancelButton').addEventListener('click', closeModal);
+        document.querySelector('#clientModal .modal-close-x').addEventListener('click', closeModal);
+
+        document.getElementById('clientForm').addEventListener('submit', function (e) {
+            e.preventDefault();
+            handleClientFormSubmit(e);
+        });
+
+        document.getElementById('clientTableBody').addEventListener('click', function (e) {
+            if (e.target.closest('.edit-client')) {
+                handleEditClient(e.target.closest('.edit-client').dataset.clientId);
+            } else if (e.target.closest('.delete-client')) {
+                handleDeleteClient(e.target.closest('.delete-client').dataset.clientId);
+            }
+        });
+    }
+
+    async function handleClientFormSubmit(e) {
+        try {
+            const clientId = document.getElementById('clientId').value;
+            const payload = {
+                company_name: document.getElementById('company_name').value.trim(),
+                contact_person: document.getElementById('contact_person').value.trim() || null,
+                email: document.getElementById('email').value.trim() || null,
+                company_address: document.getElementById('company_address').value.trim() || null,
+                payment_terms: document.getElementById('payment_terms').value.trim() || null
+            };
+            if (!payload.company_name) {
+                alert('Company name is required.');
+                return;
+            }
+            const authToken = localStorage.getItem('authToken');
+            const method = clientId ? 'PUT' : 'POST';
+            const url = clientId ? getApiUrl('/api/clients/' + clientId) : getApiUrl('/api/clients');
+            const response = await fetch(url, {
+                method: method,
+                headers: { 'Authorization': 'Bearer ' + authToken, 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify(payload)
+            });
+            if (!response.ok) {
+                const errText = await response.text();
+                throw new Error(errText || 'Save failed');
+            }
+            await fetchClients();
+            document.getElementById('clientModalOverlay').classList.add('hidden');
+            document.getElementById('clientModal').classList.add('hidden');
+            e.target.reset();
+        } catch (error) {
+            console.error('Error saving client:', error);
+            alert('Error saving client: ' + error.message);
+        }
+    }
+
+    async function handleEditClient(id) {
+        try {
+            const authToken = localStorage.getItem('authToken');
+            const response = await fetch(getApiUrl('/api/clients/' + id), {
+                method: 'GET',
+                headers: { 'Authorization': 'Bearer ' + authToken, 'Content-Type': 'application/json' },
+                credentials: 'include'
+            });
+            if (!response.ok) throw new Error('Failed to load client');
+            const client = await response.json();
+            document.getElementById('clientId').value = client.id;
+            document.getElementById('company_name').value = client.company_name || '';
+            document.getElementById('contact_person').value = client.contact_person || '';
+            document.getElementById('email').value = client.email || '';
+            document.getElementById('company_address').value = client.company_address || '';
+            document.getElementById('payment_terms').value = client.payment_terms || '';
+            document.getElementById('clientModalTitle').textContent = 'Edit Client';
+            document.getElementById('clientModalOverlay').classList.remove('hidden');
+            document.getElementById('clientModal').classList.remove('hidden');
+        } catch (error) {
+            console.error('Error loading client:', error);
+            alert('Error loading client: ' + error.message);
+        }
+    }
+
+    async function handleDeleteClient(id) {
+        if (!confirm('Delete this client? This cannot be undone.')) return;
+        try {
+            const authToken = localStorage.getItem('authToken');
+            const response = await fetch(getApiUrl('/api/clients/' + id), {
+                method: 'DELETE',
+                headers: { 'Authorization': 'Bearer ' + authToken, 'Content-Type': 'application/json' },
+                credentials: 'include'
+            });
+            if (!response.ok) throw new Error('Delete failed');
+            await fetchClients();
+        } catch (error) {
+            console.error('Error deleting client:', error);
+            alert('Error deleting client: ' + error.message);
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', initializeApp);
+    </script>
+</body>
+</html>

@@ -6,7 +6,11 @@ const config = {
         if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
             return 'http://localhost:3000';  // Local development
         }
-        // Production - use same origin (monolithic deployment)
+        // When frontend is on a separate host, use the backend API URL
+        if (window.location.hostname === 'cmrp-oppx.onrender.com') {
+            return 'https://cmrp-opps-backend.onrender.com';
+        }
+        // Production monolithic - use same origin
         return window.location.origin;
     })(),
     

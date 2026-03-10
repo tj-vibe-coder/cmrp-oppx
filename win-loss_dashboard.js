@@ -224,6 +224,8 @@ function restoreUIState() {
     console.log('[SETTINGS] Restoring table filter to:', currentTableStatusFilter);
     if (currentTableStatusFilter === 'OP100') {
         setTableFilterActive('filterOP100Btn');
+    } else if (currentTableStatusFilter === 'OP90') {
+        setTableFilterActive('filterOP90Btn');
     } else if (currentTableStatusFilter === 'LOST') {
         setTableFilterActive('filterLOSTBtn');
     }
@@ -579,8 +581,10 @@ function renderWinLossCharts(data) {
     console.log('📊 Month indices:', monthIndices);
 
     // Initialize arrays for monthly data
-    let winMonthlyAmount = Array(12).fill(0);
-    let winMonthlyCount = Array(12).fill(0);
+    let winMonthlyAmount = Array(12).fill(0);   // OP100
+    let winMonthlyCount = Array(12).fill(0);    // OP100
+    let op90MonthlyAmount = Array(12).fill(0);  // OP90
+    let op90MonthlyCount = Array(12).fill(0);   // OP90
     let lossMonthlyAmount = Array(12).fill(0);
     let lossMonthlyCount = Array(12).fill(0);
 
@@ -594,6 +598,9 @@ function renderWinLossCharts(data) {
                     if (item.opp_status === 'OP100') {
                         winMonthlyAmount[month] += Number(item.final_amt) || 0;
                         winMonthlyCount[month] += 1;
+                    } else if (item.opp_status === 'OP90') {
+                        op90MonthlyAmount[month] += Number(item.final_amt) || 0;
+                        op90MonthlyCount[month] += 1;
                     } else if (item.opp_status === 'LOST') {
                         lossMonthlyAmount[month] += Number(item.final_amt) || 0;
                         lossMonthlyCount[month] += 1;
@@ -609,6 +616,8 @@ function renderWinLossCharts(data) {
     // Filter data for selected quarters
     const winChartAmounts = monthIndices.map(idx => winMonthlyAmount[idx]);
     const winChartCounts = monthIndices.map(idx => winMonthlyCount[idx]);
+    const op90ChartAmounts = monthIndices.map(idx => op90MonthlyAmount[idx]);
+    const op90ChartCounts = monthIndices.map(idx => op90MonthlyCount[idx]);
     const lossChartAmounts = monthIndices.map(idx => lossMonthlyAmount[idx]);
     const lossChartCounts = monthIndices.map(idx => lossMonthlyCount[idx]);
 
@@ -617,6 +626,9 @@ function renderWinLossCharts(data) {
     const colorWin = rootStyle.getPropertyValue('--color-win').trim() || '#16a34a';
     const colorWinBg = rootStyle.getPropertyValue('--color-win-bg').trim() || 'rgba(22, 163, 74, 0.2)';
     const colorWinDark = rootStyle.getPropertyValue('--color-win-dark').trim() || '#15803d';
+    const colorOp90 = rootStyle.getPropertyValue('--text-op90').trim() || '#7c3aed';
+    const colorOp90Bg = 'rgba(124, 58, 237, 0.2)';
+    const colorOp90Dark = '#5b21b6';
     const colorLoss = rootStyle.getPropertyValue('--color-loss').trim() || '#dc2626';
     const colorLossBg = rootStyle.getPropertyValue('--color-loss-bg').trim() || 'rgba(220, 38, 38, 0.2)';
     const colorLossDark = rootStyle.getPropertyValue('--color-loss-dark').trim() || '#b91c1c';
@@ -663,14 +675,16 @@ function renderWinLossCharts(data) {
 
         // Get the maximum amount from both win and loss data to set consistent scale
         const maxWinAmount = Math.max(...winChartAmounts);
+        const maxOp90Amount = Math.max(...op90ChartAmounts);
         const maxLossAmount = Math.max(...lossChartAmounts);
-        const maxAmount = Math.max(maxWinAmount, maxLossAmount);
+        const maxAmount = Math.max(maxWinAmount, maxOp90Amount, maxLossAmount);
         const niceMaxAmount = getNiceMaxValue(maxAmount);
         
         // Get the maximum count and make it a nice round number
         const maxWinCount = Math.max(...winChartCounts);
+        const maxOp90Count = Math.max(...op90ChartCounts);
         const maxLossCount = Math.max(...lossChartCounts);
-        const maxCount = Math.max(maxWinCount, maxLossCount);
+        const maxCount = Math.max(maxWinCount, maxOp90Count, maxLossCount);
         const niceMaxCount = getNiceMaxValue(maxCount);
 
         // Common options with synchronized scales
@@ -755,7 +769,7 @@ function renderWinLossCharts(data) {
                 labels: chartLabels,
                 datasets: [
                     {
-                        label: 'Win Amount',
+                        label: 'OP100 Amount',
                         data: winChartAmounts,
                         backgroundColor: colorWinBg,
                         borderColor: colorWin,
@@ -763,12 +777,30 @@ function renderWinLossCharts(data) {
                         yAxisID: 'y'
                     },
                     {
-                        label: 'Win Count',
+                        label: 'OP100 Count',
                         data: winChartCounts,
                         type: 'line',
                         borderColor: colorWinDark,
                         borderWidth: 2,
                         pointBackgroundColor: colorWinDark,
+                        tension: 0.4,
+                        yAxisID: 'y1'
+                    },
+                    {
+                        label: 'OP90 Amount',
+                        data: op90ChartAmounts,
+                        backgroundColor: colorOp90Bg,
+                        borderColor: colorOp90,
+                        borderWidth: 1,
+                        yAxisID: 'y'
+                    },
+                    {
+                        label: 'OP90 Count',
+                        data: op90ChartCounts,
+                        type: 'line',
+                        borderColor: colorOp90Dark,
+                        borderWidth: 2,
+                        pointBackgroundColor: colorOp90Dark,
                         tension: 0.4,
                         yAxisID: 'y1'
                     }
@@ -944,11 +976,14 @@ function renderDashboard(data) {
     
     // Calculate metrics from filtered data
     const op100Data = filteredData.filter(item => item.opp_status === 'OP100');
+    const op90Data = filteredData.filter(item => item.opp_status === 'OP90');
     const lostData = filteredData.filter(item => item.opp_status === 'LOST');
     
     const metrics = {
         op100Count: op100Data.length,
         op100Amount: op100Data.reduce((sum, item) => sum + (Number(item.final_amt) || 0), 0),
+        op90Count: op90Data.length,
+        op90Amount: op90Data.reduce((sum, item) => sum + (Number(item.final_amt) || 0), 0),
         lostCount: lostData.length,
         lostAmount: lostData.reduce((sum, item) => sum + (Number(item.final_amt) || 0), 0)
     };
@@ -958,11 +993,15 @@ function renderDashboard(data) {
     // Update dashboard cards
     const op100CountEl = document.getElementById('op100-total-count');
     const op100AmountEl = document.getElementById('op100-total-amount');
+    const op90CountEl = document.getElementById('op90-total-count');
+    const op90AmountEl = document.getElementById('op90-total-amount');
     const lossCountEl = document.getElementById('loss-total-count');
     const lossAmountEl = document.getElementById('loss-total-amount');
     
     if (op100CountEl) op100CountEl.textContent = metrics.op100Count.toString();
     if (op100AmountEl) op100AmountEl.textContent = formatCurrencyAmount(metrics.op100Amount);
+    if (op90CountEl) op90CountEl.textContent = metrics.op90Count.toString();
+    if (op90AmountEl) op90AmountEl.textContent = formatCurrencyAmount(metrics.op90Amount);
     if (lossCountEl) lossCountEl.textContent = metrics.lostCount.toString();
     if (lossAmountEl) lossAmountEl.textContent = formatCurrencyAmount(metrics.lostAmount);
     
@@ -1092,6 +1131,8 @@ function renderOpportunitiesTable(opportunities) {
         const status = (opp['opp_status'] || '').toUpperCase();
         if (status === 'OP100') {
             tr.classList.add('bg-op100');
+        } else if (status === 'OP90') {
+            tr.classList.add('op90');
         } else if (status === 'LOST') {
             tr.classList.add('bg-lost');
         }
@@ -1265,19 +1306,26 @@ function populateDropdowns(data) {
 
 // --- Table filter buttons (OP100/LOST/All) ---
 function setTableFilterActive(activeId) {
-    ['filterOP100Btn','filterLOSTBtn'/*,'filterAllBtn'*/].forEach(id => { // Removed filterAllBtn
+    ['filterOP100Btn','filterOP90Btn','filterLOSTBtn'/*,'filterAllBtn'*/].forEach(id => { // Removed filterAllBtn
         const btn = document.getElementById(id);
         if (btn) btn.classList.toggle('active', id === activeId);
     });
 }
 function setupTableFilterButtons() {
     const op100Btn = document.getElementById('filterOP100Btn');
+    const op90Btn = document.getElementById('filterOP90Btn');
     const lostBtn = document.getElementById('filterLOSTBtn');
     // const allBtn = document.getElementById('filterAllBtn'); // Removed allBtn
 
     if (op100Btn) op100Btn.onclick = function() {
         currentTableStatusFilter = 'OP100';
         setTableFilterActive('filterOP100Btn');
+        saveSettings();
+        renderOpportunitiesTable(dashboardDataCache);
+    };
+    if (op90Btn) op90Btn.onclick = function() {
+        currentTableStatusFilter = 'OP90';
+        setTableFilterActive('filterOP90Btn');
         saveSettings();
         renderOpportunitiesTable(dashboardDataCache);
     };

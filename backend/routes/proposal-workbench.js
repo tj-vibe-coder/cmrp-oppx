@@ -316,6 +316,12 @@ router.get('/proposals/pics', async (req, res) => {
             pic: row.person_name,
             count: parseInt(row.total_count)
         }));
+
+        // Ensure ASP is always in the list (PIC/BOM option)
+        if (!pics.some(p => p.pic === 'ASP')) {
+            pics.push({ pic: 'ASP', count: 0 });
+            pics.sort((a, b) => (a.pic || '').localeCompare(b.pic || ''));
+        }
         
         console.log(`[DATABASE] Retrieved ${pics.length} PICs/BOMs for filtering`);
         res.json(pics);
