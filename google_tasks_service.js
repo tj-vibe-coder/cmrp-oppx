@@ -455,10 +455,12 @@ class GoogleTasksService {
 
       // 2. Get all users with Google OAuth connected
       const recipients = await db.query(
-        `SELECT u.id, u.name, u.email, u.account_type, uct.google_email
+        `SELECT DISTINCT u.id, u.name, u.email, u.account_type, uct.google_email
          FROM users u
          INNER JOIN user_calendar_tokens uct ON u.id = uct.user_id
          WHERE uct.google_email IS NOT NULL
+           AND (u.account_type IN ('Admin', 'System Admin')
+                OR u.name IN (SELECT DISTINCT account_mgr FROM opps_monitoring WHERE account_mgr IS NOT NULL))
          ORDER BY u.name ASC`
       );
 
