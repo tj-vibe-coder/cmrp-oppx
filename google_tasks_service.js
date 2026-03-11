@@ -12,7 +12,7 @@ class GoogleTasksService {
    * Uses the assigner's OAuth tokens to send from their Gmail.
    * Falls back to the assigned user's tokens if assigner tokens unavailable.
    */
-  async sendAssignmentEmail({ assignedUserId, assignedByUserId, projectName, client, assignedByName, opportunityUid, driveFolderUrl }) {
+  async sendAssignmentEmail({ assignedUserId, assignedByUserId, projectCode, projectName, client, assignedByName, opportunityUid, driveFolderUrl }) {
     try {
       // Get the assigned user's Google email (recipient)
       const userTokens = await this.calendarOAuthService.getUserTokens(assignedUserId);
@@ -47,8 +47,9 @@ class GoogleTasksService {
         ``,
         `You have been assigned as PIC for the following project:`,
         ``,
+        projectCode ? `  Project No.: ${projectCode}` : null,
         `  Project: ${projectName}`,
-        client ? `  Client: ${client}` : null,
+        `  Client: ${client || 'N/A'}`,
         `  Assigned by: ${assignedByName || 'System'}`,
         driveFolderUrl ? `  Google Drive: ${driveFolderUrl}` : null,
         ``,
@@ -110,7 +111,7 @@ class GoogleTasksService {
    * Auto-sync: Create Google Task + send email when PIC is assigned.
    * Called directly from PIC assignment hooks.
    */
-  async onPICAssigned({ userId, assignedByUserId, opportunityUid, projectName, client, assignedByName, dueDate, driveFolderUrl }) {
+  async onPICAssigned({ userId, assignedByUserId, opportunityUid, projectCode, projectName, client, assignedByName, dueDate, driveFolderUrl }) {
     const results = { task: null, email: null };
 
     // 1. Create Google Task
@@ -120,7 +121,7 @@ class GoogleTasksService {
 
     // 2. Send email notification (from assigner to assignee)
     results.email = await this.sendAssignmentEmail({
-      assignedUserId: userId, assignedByUserId, projectName, client, assignedByName, opportunityUid, driveFolderUrl
+      assignedUserId: userId, assignedByUserId, projectCode, projectName, client, assignedByName, opportunityUid, driveFolderUrl
     });
 
     return results;
