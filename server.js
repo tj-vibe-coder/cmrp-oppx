@@ -118,6 +118,18 @@ app.get('/api/cors-test', (req, res) => {
   });
 });
 
+// Google OAuth diagnostic (no auth) – which redirect URI is configured
+app.get('/api/google-oauth-check', (req, res) => {
+  const redirectUri = process.env.GOOGLE_OAUTH_REDIRECT_URI || '';
+  res.json({
+    redirectUri: redirectUri || '(not set – using default localhost)',
+    redirectUriSet: !!redirectUri && !redirectUri.includes('localhost'),
+    hasClientId: !!process.env.GOOGLE_OAUTH_CLIENT_ID,
+    hasClientSecret: !!process.env.GOOGLE_OAUTH_CLIENT_SECRET,
+    hint: 'Add this exact redirectUri to Google Cloud Console → Credentials → Your OAuth client → Authorized redirect URIs',
+  });
+});
+
 // Database diagnostic endpoints
 app.get('/api/db-test', async (req, res) => {
   try {

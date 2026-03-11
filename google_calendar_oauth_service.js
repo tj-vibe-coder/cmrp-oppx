@@ -50,8 +50,13 @@ class GoogleCalendarOAuthService {
       );
 
       this.calendar = google.calendar({ version: 'v3', auth: this.oauth2Client });
-      
+
+      const ru = GOOGLE_CALENDAR_OAUTH_CONFIG.redirectUri || '';
       console.log('✅ Google Calendar OAuth service initialized');
+      console.log(`   Redirect URI: ${ru ? ru : '(not set – check GOOGLE_OAUTH_REDIRECT_URI)'}`);
+      if (process.env.NODE_ENV === 'production' && (!ru || ru.includes('localhost'))) {
+        console.warn('⚠️ Production detected but redirect URI is localhost. Set GOOGLE_OAUTH_REDIRECT_URI to https://your-app.onrender.com/auth/google/calendar/callback');
+      }
       return true;
     } catch (error) {
       console.error('❌ Failed to initialize Google Calendar OAuth service:', error.message);
@@ -102,6 +107,7 @@ class GoogleCalendarOAuthService {
       } catch (oauthError) {
         console.error('❌ OAuth getToken error:', oauthError.message);
         console.error('❌ Error details:', oauthError.response?.data || 'No additional details');
+        console.error('❌ Redirect URI used:', GOOGLE_CALENDAR_OAUTH_CONFIG.redirectUri || '(not set)');
         return {
           success: false,
           error: `Google OAuth failed: ${oauthError.message}`
