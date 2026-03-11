@@ -1008,7 +1008,7 @@ const cron = require('node-cron');
 let weeklyDigestJob = null;
 
 if (process.env.NODE_ENV === 'production' || process.env.ENABLE_WEEKLY_DIGEST === 'true') {
-    weeklyDigestJob = cron.schedule('0 9 * * 5', async () => {
+    weeklyDigestJob = cron.schedule('0 13 * * 5', async () => {
         console.log('[WEEKLY-DIGEST] Cron triggered - sending weekly digest...');
         try {
             const result = await googleTasksService.sendWeeklyDigest();
@@ -1017,7 +1017,7 @@ if (process.env.NODE_ENV === 'production' || process.env.ENABLE_WEEKLY_DIGEST ==
             console.error('[WEEKLY-DIGEST] Cron error:', e.message);
         }
     }, { scheduled: true, timezone: 'Asia/Manila' });
-    console.log('[SERVER] Weekly digest email scheduled (Friday 9:00 AM Manila)');
+    console.log('[SERVER] Weekly digest email scheduled (Friday 1:00 PM Manila)');
 } else {
     console.log('[SERVER] Weekly digest disabled (development mode). Set ENABLE_WEEKLY_DIGEST=true to enable.');
 }
