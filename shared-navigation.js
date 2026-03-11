@@ -671,6 +671,9 @@ class SharedNavigation {
         
         // Update Import/Export visibility
         this.updateImportExportNavVisibility();
+
+        // Update Weekly Digest button visibility
+        this.updateWeeklyDigestBtnVisibility();
     }
 
     updateUserMgmtNavVisibility() {
@@ -726,6 +729,47 @@ class SharedNavigation {
             csvFormatterBtn.style.display = (name === 'RJR') ? '' : 'none';
         } catch {
             csvFormatterBtn.style.display = 'none';
+        }
+    }
+
+    updateWeeklyDigestBtnVisibility() {
+        const btn = document.getElementById('sendWeeklyDigestBtn');
+        if (!btn) return;
+
+        const token = localStorage.getItem('authToken');
+        if (!token) { btn.style.display = 'none'; return; }
+
+        try {
+            const payload = JSON.parse(atob(token.split('.')[1]));
+            const name = (payload.name || '').toUpperCase();
+            // Only show for superadmin TJC
+            btn.style.display = (name === 'TJC') ? '' : 'none';
+
+            if (name === 'TJC') {
+                btn.onclick = async () => {
+                    btn.disabled = true;
+                    btn.querySelector('.sidebar-item-text').textContent = 'Sending...';
+                    try {
+                        const resp = await fetch(getApiUrl('/api/weekly-digest/send'), {
+                            method: 'POST',
+                            headers: { 'Authorization': `Bearer ${token}` }
+                        });
+                        const data = await resp.json();
+                        if (data.success) {
+                            alert(`Weekly digest sent! ${data.proposals || 0} proposals, ${data.sent || 0} recipients.`);
+                        } else {
+                            alert('Failed to send digest: ' + (data.error || 'Unknown error'));
+                        }
+                    } catch (e) {
+                        alert('Error sending digest: ' + e.message);
+                    } finally {
+                        btn.disabled = false;
+                        btn.querySelector('.sidebar-item-text').textContent = 'Send Weekly Digest';
+                    }
+                };
+            }
+        } catch {
+            btn.style.display = 'none';
         }
     }
 
