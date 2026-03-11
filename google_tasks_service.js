@@ -437,11 +437,13 @@ class GoogleTasksService {
 
       // 1. Query proposals submitted in the past 7 days
       const proposals = await db.query(
-        `SELECT project_name, project_code, client, account_mgr, pic, bom, final_amt, margin, submitted_date, google_drive_folder_url
+        `SELECT project_name, project_code, client, account_mgr, pic, bom, final_amt, margin, submitted_date, google_drive_folder_url, opp_status
          FROM opps_monitoring
          WHERE submitted_date >= date('now', '-7 days')
            AND status = 'Submitted'
-         ORDER BY submitted_date DESC`
+         ORDER BY
+           CAST(REPLACE(opp_status, 'OP', '') AS INTEGER) DESC,
+           CAST(REPLACE(REPLACE(REPLACE(final_amt, '₱', ''), '$', ''), ',', '') AS REAL) DESC`
       );
 
       if (proposals.rows.length === 0) {
