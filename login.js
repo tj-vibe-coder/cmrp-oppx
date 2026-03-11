@@ -104,19 +104,32 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             try {
                 loadingScreen.classList.add('visible');
-                const loginUrl = (window.APP_CONFIG?.API_BASE_URL || window.location.origin) + '/api/login';
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 90000); // 90s for cold backend
+                const primaryBase = window.APP_CONFIG?.API_BASE_URL || window.location.origin;
+                const sameOrigin = window.location.origin;
+                const loginPayload = JSON.stringify({ email, password });
+                const fetchOpts = {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: loginPayload
+                };
+                const tryLogin = (url) => {
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 90000);
+                    return fetch(url, { ...fetchOpts, signal: controller.signal }).finally(() => clearTimeout(timeoutId));
+                };
                 let response;
                 try {
-                    response = await fetch(loginUrl, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ email, password }),
-                        signal: controller.signal
-                    });
-                } finally {
-                    clearTimeout(timeoutId);
+                    response = await tryLogin(primaryBase + '/api/login');
+                } catch (firstErr) {
+                    if (sameOrigin !== primaryBase && (firstErr.name === 'TypeError' || firstErr.message === 'Failed to fetch' || firstErr.name === 'AbortError')) {
+                        try {
+                            response = await tryLogin(sameOrigin + '/api/login');
+                        } catch (retryErr) {
+                            throw firstErr;
+                        }
+                    } else {
+                        throw firstErr;
+                    }
                 }
                 const data = await response.json().catch(() => ({}));
                 if (!response.ok || !data.token) {

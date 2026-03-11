@@ -6,11 +6,8 @@ const config = {
         if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
             return 'http://localhost:3000';  // Local development
         }
-        // When frontend is on a separate host, use the backend API URL
-        if (window.location.hostname === 'cmrp-oppx.onrender.com') {
-            return 'https://cmrp-opps-backend.onrender.com';
-        }
-        // Production monolithic - use same origin
+        // Production: use same origin so one Render service (app + API together) works.
+        // If you run frontend and backend as separate Render services, set window.APP_CONFIG.API_BASE_URL after load.
         return window.location.origin;
     })(),
     
