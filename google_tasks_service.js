@@ -586,6 +586,115 @@ class GoogleTasksService {
       return { success: false, error: error.message };
     }
   }
+
+  /**
+   * Send email notification when a project is awarded (OP100).
+   * Sends to account managers and admins.
+   */
+  async sendOP100Email({ projectCode, projectName, client, accountMgr, pic, bom, finalAmt, margin, driveFolderUrl, changedByName }) {
+    try {
+      console.log(`[OP100-EMAIL] Sending OP100 notification for: ${projectName}`);
+
+      // Get recipients: account managers + admins with Google connected
+      const recipients = await db.query(
+        `SELECT DISTINCT u.id, u.name, u.email, u.account_type, uct.google_email
+         FROM users u
+         INNER JOIN user_calendar_tokens uct ON u.id = uct.user_id
+         WHERE uct.google_email IS NOT NULL
+           AND (u.account_type IN ('Admin', 'System Admin')
+                OR u.name IN (SELECT DISTINCT account_mgr FROM opps_monitoring WHERE account_mgr IS NOT NULL))
+         ORDER BY u.name ASC`
+      );
+
+      if (recipients.rows.length === 0) {
+        console.log(`[OP100-EMAIL] No recipients found, skipping`);
+        return { success: false, reason: 'no_recipients' };
+      }
+
+      // Find sender (prefer Admin)
+      let senderUserId = null;
+      for (const r of recipients.rows) {
+        if (r.account_type === 'Admin' || r.account_type === 'System Admin') {
+          senderUserId = r.id;
+          break;
+        }
+      }
+      if (!senderUserId) senderUserId = recipients.rows[0].id;
+
+      let senderTokens;
+      try {
+        senderTokens = await this.calendarOAuthService.ensureValidTokens(senderUserId);
+      } catch (e) {
+        console.error(`[OP100-EMAIL] Failed to get sender tokens:`, e.message);
+        return { success: false, error: 'No valid sender tokens' };
+      }
+
+      const amt = parseFloat(String(finalAmt || '0').replace(/[₱$,]/g, ''));
+      const formatCurrency = (v) => '₱' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+      const subject = `[CMRP OppX] 🎉 Project Awarded (OP100): ${projectName}`;
+      const body = [
+        `A project has been awarded (OP100)!`,
+        ``,
+        projectCode ? `  Project No.: ${projectCode}` : null,
+        `  Project:     ${projectName}`,
+        `  Client:      ${client || 'N/A'}`,
+        `  AM:          ${accountMgr || 'N/A'}`,
+        `  PIC:         ${pic || 'N/A'}`,
+        `  BOM:         ${bom || 'N/A'}`,
+        `  Amount:      ${!isNaN(amt) && amt > 0 ? formatCurrency(amt) : 'N/A'}`,
+        margin ? `  Margin:      ${margin}%` : null,
+        driveFolderUrl ? `  Google Drive: ${driveFolderUrl}` : null,
+        ``,
+        `  Updated by:  ${changedByName}`,
+        ``,
+        `Congratulations to the team!`,
+        ``,
+        `— CMRP OppX`,
+        ``,
+        `This is a computer-generated email. Please do not reply.`
+      ].filter(Boolean).join('\n');
+
+      const recipientEmails = recipients.rows.map(r => r.google_email);
+
+      const rawMessage = [
+        `To: ${recipientEmails.join(', ')}`,
+        `Subject: ${subject}`,
+        `Content-Type: text/plain; charset="UTF-8"`,
+        ``,
+        body
+      ].join('\n');
+
+      const encodedMessage = Buffer.from(rawMessage)
+        .toString('base64')
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '');
+
+      const oauth2Client = new google.auth.OAuth2(
+        process.env.GOOGLE_OAUTH_CLIENT_ID,
+        process.env.GOOGLE_OAUTH_CLIENT_SECRET,
+        process.env.GOOGLE_OAUTH_REDIRECT_URI || 'http://localhost:3000/auth/google/calendar/callback'
+      );
+      oauth2Client.setCredentials({
+        access_token: senderTokens.access_token,
+        refresh_token: senderTokens.refresh_token
+      });
+
+      const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+      await gmail.users.messages.send({
+        userId: 'me',
+        requestBody: { raw: encodedMessage }
+      });
+
+      console.log(`[OP100-EMAIL] Sent to ${recipientEmails.length} recipients: ${recipientEmails.join(', ')}`);
+      return { success: true, sent: recipientEmails.length };
+
+    } catch (error) {
+      console.error(`[OP100-EMAIL] Failed:`, error.message);
+      return { success: false, error: error.message };
+    }
+  }
 }
 
 module.exports = GoogleTasksService;

@@ -3529,6 +3529,28 @@ app.put('/api/opportunities/:uid', authenticateToken,
         console.error('[GOOGLE-TASKS] Error completing task on submission:', taskError.message);
       }
 
+      // Send OP100 (Awarded) email notification
+      try {
+        const oldOppSt = (currentOpp.opp_status || '').toUpperCase();
+        const newOppSt = (updatedOpp.opp_status || '').toUpperCase();
+        if (oldOppSt !== 'OP100' && newOppSt === 'OP100') {
+          await googleTasksService.sendOP100Email({
+            projectCode: updatedOpp.project_code || null,
+            projectName: updatedOpp.project_name || 'Unknown Project',
+            client: updatedOpp.client || null,
+            accountMgr: updatedOpp.account_mgr || null,
+            pic: updatedOpp.pic || null,
+            bom: updatedOpp.bom || null,
+            finalAmt: updatedOpp.final_amt || null,
+            margin: updatedOpp.margin || null,
+            driveFolderUrl: updatedOpp.google_drive_folder_url || null,
+            changedByName: req.user?.name || req.user?.email || 'System'
+          });
+        }
+      } catch (op100Error) {
+        console.error('[OP100-EMAIL] Error sending OP100 email:', op100Error.message);
+      }
+
       // Return success response with updated data
       res.json({
           success: true,
