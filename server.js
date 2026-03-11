@@ -3157,20 +3157,21 @@ app.put('/api/opportunities/:uid', authenticateToken,
     // Add more fields as needed
   ],
   async (req, res) => {
-    console.log(`[PUT /api/opportunities/${req.params.uid}] === START ===`);
+    const uid = req.params.uid;
+    try {
+    console.log(`[PUT /api/opportunities/${uid}] === START ===`);
     console.log(`[PUT] Request headers:`, req.headers);
     console.log(`[PUT] Raw body received:`, JSON.stringify(req.body, null, 2));
-    
+
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       console.error(`[PUT] Validation errors:`, errors.array());
-      return res.status(400).json({ 
-        error: 'Invalid input', 
+      return res.status(400).json({
+        error: 'Invalid input',
         details: errors.array(),
         message: `Validation failed: ${errors.array().map(e => `${e.param}: ${e.msg}`).join(', ')}`
       });
     }
-    const { uid } = req.params;
     console.log(`[PUT /api/opportunities/${uid}] Received raw body:`, JSON.stringify(req.body, null, 2));
     let updateData = { ...req.body };
     const changed_by = updateData.changed_by || null;
@@ -3204,7 +3205,7 @@ app.put('/api/opportunities/:uid', authenticateToken,
     const keysToUpdate = Object.keys(updateData);
     if (keysToUpdate.length === 0) return res.status(400).json({ error: 'No data provided for update.' });
 
-    try {
+    {
       let currentOpp, updatedOpp, actualChangedFields, newRevNumber, oldRevNumber, isRevChanged;
       
       // Use db.transaction for unified database interface
@@ -3500,15 +3501,17 @@ app.put('/api/opportunities/:uid', authenticateToken,
           changedFields: actualChangedFields
       });
 
+    }
+
     } catch (error) {
       console.error(`[PUT /api/opportunities/${uid}] Error:`, error);
-      
+
       // Handle "Opportunity not found" error specifically
       if (error.message === 'Opportunity not found') {
         return res.status(404).json({ error: 'Opportunity not found.' });
       }
-      
-      res.status(500).json({ 
+
+      res.status(500).json({
           error: 'Failed to update opportunity',
           message: error.message,
           details: error.stack
@@ -4996,8 +4999,12 @@ app.post('/api/emergency/run-last-excel-sync-migration', async (req, res) => {
 
 // --- GLOBAL ERROR HANDLER ---
 app.use((err, req, res, next) => {
-  console.error('Unhandled error:', err);
-  res.status(500).json({ error: 'An unexpected error occurred.' });
+  console.error('Unhandled error on', req.method, req.originalUrl, ':', err);
+  res.status(500).json({
+    error: 'An unexpected error occurred.',
+    message: err.message || String(err),
+    path: req.originalUrl
+  });
 });
 
 const server = app.listen(port, () => {
@@ -5435,7 +5442,12 @@ app.get('/api/drive/search', authenticateToken, async (req, res) => {
     const initialized = await driveService.initialize();
     
     if (!initialized) {
-      throw new Error('Failed to initialize Google Drive service');
+      return res.status(503).json({
+        success: false,
+        error: 'Google Drive not configured',
+        message: 'GOOGLE_SERVICE_ACCOUNT_KEY or credentials file is missing or invalid. Check server env.',
+        folders: []
+      });
     }
 
     const folders = await driveService.searchFolders(query.trim(), parseInt(maxResults));
@@ -5481,7 +5493,12 @@ app.get('/api/opportunities/:uid/drive-folder/search', authenticateToken, async 
     const initialized = await driveService.initialize();
     
     if (!initialized) {
-      throw new Error('Failed to initialize Google Drive service');
+      return res.status(503).json({
+        success: false,
+        error: 'Google Drive not configured',
+        message: 'GOOGLE_SERVICE_ACCOUNT_KEY or credentials file is missing or invalid. Check server env.',
+        folders: []
+      });
     }
 
     const folders = await driveService.smartSearchForOpportunity(opportunity);
