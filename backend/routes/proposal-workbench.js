@@ -717,7 +717,8 @@ router.post('/schedule/add', async (req, res) => {
         console.error('[ERROR] Failed to add proposal to schedule:', error);
         
         // Handle duplicate key errors gracefully
-        if (error.code === '23505') { // PostgreSQL unique violation
+        const isUniqueViolation = error.code === '23505' || error.code === 'SQLITE_CONSTRAINT_UNIQUE' || (error.message && /UNIQUE|unique constraint/i.test(error.message));
+        if (isUniqueViolation) {
             res.status(409).json({ error: 'Proposal is already scheduled for this week' });
         } else {
             res.status(500).json({ error: 'Failed to add proposal to schedule' });
@@ -880,7 +881,8 @@ router.post('/schedule/tasks/add', async (req, res) => {
         console.error('[ERROR] Failed to add custom task:', error);
         
         // Handle duplicate key errors gracefully
-        if (error.code === '23505') { // PostgreSQL unique violation
+        const isUniqueViolation = error.code === '23505' || error.code === 'SQLITE_CONSTRAINT_UNIQUE' || (error.message && /UNIQUE|unique constraint/i.test(error.message));
+        if (isUniqueViolation) {
             res.status(409).json({ error: 'Task ID already exists for this user' });
         } else {
             res.status(500).json({ error: 'Failed to add custom task' });

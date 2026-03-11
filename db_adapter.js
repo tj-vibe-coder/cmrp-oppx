@@ -1,5 +1,5 @@
 /**
- * Database Adapter for PostgreSQL, SQLiteCloud, and Local SQLite
+ * Database Adapter for SQLiteCloud and Local SQLite
  * This module provides a unified interface for database operations
  */
 
@@ -82,13 +82,6 @@ async function initDatabase() {
         db.pragma('foreign_keys = ON');
         dbType = 'sqlite';
         console.log(`✅ Connected to local SQLite database: ${dbPath}`);
-    } else if (databaseUrl.startsWith('postgresql://') || databaseUrl.startsWith('postgres://')) {
-        // PostgreSQL connection
-        const { Pool } = require('pg');
-        db = new Pool({ connectionString: databaseUrl });
-        await db.query('SELECT NOW()'); // Test connection
-        dbType = 'postgresql';
-        console.log('✅ Connected to PostgreSQL');
     } else if (!databaseUrl.includes('://') && (databaseUrl.endsWith('.db') || databaseUrl.endsWith('.sqlite'))) {
         // Direct file path (e.g., ./database.db)
         const Database = require('better-sqlite3');
@@ -130,23 +123,17 @@ async function query(sql, params = []) {
     if (dbType === 'sqlitecloud') {
         // SQLiteCloud query
         try {
-            // Log UPDATE/INSERT/DELETE queries for debugging
-            const isWriteQuery = /^\s*(UPDATE|INSERT|DELETE)/i.test(sql.trim());
+            const convertedSql = convertSQL(sql);
+            const isWriteQuery = /^\s*(UPDATE|INSERT|DELETE)/i.test(convertedSql.trim());
             if (isWriteQuery) {
-                console.log('[DB-ADAPTER] SQLiteCloud write query:', sql.substring(0, 200));
+                console.log('[DB-ADAPTER] SQLiteCloud write query:', convertedSql.substring(0, 200));
                 console.log('[DB-ADAPTER] Params:', params);
             }
-            
             let result;
-            
-            // SQLiteCloud supports both template literals and function calls
-            // For queries without parameters, use the function call syntax
             if (params.length === 0) {
-                // No parameters - use direct SQL string
-                result = await db.sql(sql);
+                result = await db.sql(convertedSql);
             } else {
-                // Has parameters - use function call with spread
-                result = await db.sql(sql, ...params);
+                result = await db.sql(convertedSql, ...params);
             }
 
             // Normalize result format to match PostgreSQL
@@ -255,10 +242,9 @@ async function query(sql, params = []) {
             console.error('SQLite query error:', error);
             throw error;
         }
-    } else if (dbType === 'postgresql') {
-        // PostgreSQL query
-        return await db.query(sql, params);
     }
+
+    throw new Error('Database type not supported');
 }
 
 /**
@@ -308,35 +294,20 @@ async function transaction(callback) {
             db.exec('ROLLBACK');
             throw error;
         }
-    } else if (dbType === 'postgresql') {
-        const client = await db.connect();
-        try {
-            await client.query('BEGIN');
-            await callback((sql, params) => client.query(sql, params));
-            await client.query('COMMIT');
-        } catch (error) {
-            await client.query('ROLLBACK');
-            throw error;
-        } finally {
-            client.release();
-        }
     }
 }
 
 /**
- * Get a client for connection pooling (PostgreSQL only)
- * For SQLiteCloud and local SQLite, returns a query wrapper
+ * Get a client for connection pooling (SQLiteCloud/SQLite: returns query wrapper)
  */
 async function getClient() {
-    if (dbType === 'postgresql') {
-        return await db.connect();
-    } else if (dbType === 'sqlitecloud' || dbType === 'sqlite') {
-        // Return a query wrapper for SQLiteCloud and local SQLite
+    if (dbType === 'sqlitecloud' || dbType === 'sqlite') {
         return {
             query: query,
-            release: () => {} // No-op for SQLite
+            release: () => {}
         };
     }
+    throw new Error('Database not initialized');
 }
 
 /**
@@ -344,9 +315,7 @@ async function getClient() {
  */
 async function close() {
     if (db) {
-        if (dbType === 'postgresql') {
-            await db.end();
-        } else if (dbType === 'sqlitecloud' || dbType === 'sqlite') {
+        if (dbType === 'sqlitecloud' || dbType === 'sqlite') {
             db.close();
         }
         console.log('✅ Database connection closed');
@@ -368,8 +337,8 @@ function getDBType() {
 }
 
 /**
- * Helper to convert PostgreSQL-specific SQL to SQLite-compatible SQL
- * @param {string} sql - PostgreSQL SQL
+ * Helper to convert SQL to SQLite-compatible (placeholders $1,$2 -> ?)
+ * @param {string} sql - SQL query (may use $1, $2 placeholders)
  * @returns {string} SQLite-compatible SQL
  */
 function convertSQL(sql) {
@@ -378,6 +347,9 @@ function convertSQL(sql) {
     }
 
     let converted = sql;
+
+    // Replace $1, $2, ... with ? for SQLite
+    converted = converted.replace(/\$(\d+)/g, '?');
 
     // Replace RETURNING * with SQLite equivalent (will need to fetch last insert id)
     converted = converted.replace(/RETURNING \*/gi, '');

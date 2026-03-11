@@ -6,7 +6,7 @@ console.log(`🚀 Port: ${process.env.PORT || 3000}`);
 
 const express = require('express');
 const path = require('path'); // Import the path module
-const db = require('./db_adapter'); // Database adapter for PostgreSQL/SQLiteCloud
+const db = require('./db_adapter'); // Database adapter for SQLiteCloud / local SQLite
 const { v4: uuidv4 } = require('uuid'); // Import uuid package
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -217,11 +217,17 @@ app.get('/api/db-transaction-test', async (req, res) => {
   }
 });
 
-// Initialize database connection (SQLiteCloud or PostgreSQL)
-let pool; // Keep for compatibility
+// Initialize database connection (SQLiteCloud or local SQLite)
+let pool;
 (async () => {
   try {
-    pool = await db.initDatabase();
+    const rawPool = await db.initDatabase();
+    pool = {
+      connect: () => ({
+        query: (sql, params) => db.query(sql.replace(/\$(\d+)/g, '?'), params),
+        release: () => {}
+      })
+    };
     console.log('✅ Database initialized successfully');
 
     // Performance: ensure common indexes exist (safe no-op if already present).
@@ -3706,7 +3712,7 @@ app.get('/client_management.html', (req, res) => {
   res.sendFile(path.join(__dirname, 'client_management.html'));
 });
 
-// --- User Management API (PostgreSQL-backed, schema-aligned) ---
+// --- User Management API ---
 
 // GET all users
 app.get('/api/users', authenticateToken, requireAdmin, async (req, res) => {

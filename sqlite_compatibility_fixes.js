@@ -1,61 +1,38 @@
 /**
  * SQLite Compatibility Helper Functions
- * Handles differences between PostgreSQL and SQLiteCloud
+ * Handles differences for SQLiteCloud and local SQLite
  */
 
 const db = require('./db_adapter');
 
 /**
  * Helper to handle RETURNING * for INSERT/UPDATE queries
- * PostgreSQL: INSERT ... RETURNING *
  * SQLite: INSERT ... then SELECT last row
  */
 async function insertWithReturning(sql, params, tableName) {
-    const dbType = db.getDBType();
-
-    if (dbType === 'postgresql') {
-        // PostgreSQL supports RETURNING *
-        const result = await db.query(sql, params);
-        return result.rows[0];
-    } else {
-        // SQLite: Remove RETURNING *, insert, then fetch
-        const cleanSql = sql.replace(/RETURNING \*/gi, '').trim();
-        const result = await db.query(cleanSql, params);
-
-        // Fetch the last inserted row
-        if (result.lastID) {
-            const selectResult = await db.query(
-                `SELECT * FROM ${tableName} WHERE rowid = ?`,
-                [result.lastID]
-            );
-            return selectResult.rows[0];
-        }
-
-        return null;
+    const cleanSql = sql.replace(/RETURNING \*/gi, '').trim();
+    const result = await db.query(cleanSql, params);
+    if (result.lastID) {
+        const selectResult = await db.query(
+            `SELECT * FROM ${tableName} WHERE rowid = ?`,
+            [result.lastID]
+        );
+        return selectResult.rows[0];
     }
+    return null;
 }
 
 /**
  * Helper to handle UPDATE ... RETURNING *
  */
 async function updateWithReturning(sql, params, tableName, whereClause, whereParams) {
-    const dbType = db.getDBType();
-
-    if (dbType === 'postgresql') {
-        const result = await db.query(sql, params);
-        return result.rows[0];
-    } else {
-        // SQLite: Remove RETURNING *, update, then fetch
-        const cleanSql = sql.replace(/RETURNING \*/gi, '').trim();
-        await db.query(cleanSql, params);
-
-        // Fetch the updated row
-        const selectResult = await db.query(
-            `SELECT * FROM ${tableName} WHERE ${whereClause}`,
-            whereParams
-        );
-        return selectResult.rows[0];
-    }
+    const cleanSql = sql.replace(/RETURNING \*/gi, '').trim();
+    await db.query(cleanSql, params);
+    const selectResult = await db.query(
+        `SELECT * FROM ${tableName} WHERE ${whereClause}`,
+        whereParams
+    );
+    return selectResult.rows[0];
 }
 
 /**
@@ -107,7 +84,7 @@ function fromSQLiteJSON(value) {
 }
 
 /**
- * Handle array fields (PostgreSQL arrays vs SQLite JSON strings)
+ * Handle array fields (SQLite stores as JSON strings)
  */
 function toSQLiteArray(value) {
     const dbType = db.getDBType();
