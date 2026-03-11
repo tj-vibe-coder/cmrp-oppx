@@ -665,13 +665,27 @@ class GoogleDriveService {
         await this.initialize();
       }
 
-      console.log(`🔍 Searching for folders matching: "${searchQuery}"`);
+      const trimmed = String(searchQuery || '').trim();
+      if (!trimmed) {
+        console.log('🔍 Search query empty, returning no folders');
+        return [];
+      }
+
+      // Escape single quotes in query for Drive API (e.g. "TMO's" -> "TMO\'s")
+      const escapedQuery = trimmed.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+      console.log(`🔍 Searching for folders matching: "${trimmed}"`);
 
       const allFolders = [];
 
-      // Search globally for folders containing the search query
+      // Prefer searching under root folder if set (service account can only see shared folders)
+      const rootId = GOOGLE_DRIVE_CONFIG.rootFolderId;
+      const baseQuery = `mimeType='application/vnd.google-apps.folder' and name contains '${escapedQuery}' and trashed=false`;
+      const q = rootId
+        ? `'${rootId}' in parents and ${baseQuery}`
+        : baseQuery;
+
       const globalSearchResponse = await this.drive.files.list({
-        q: `mimeType='application/vnd.google-apps.folder' and name contains '${searchQuery}' and trashed=false`,
+        q,
         includeItemsFromAllDrives: true,
         supportsAllDrives: true,
         fields: 'files(id, name, webViewLink, createdTime, parents)',
@@ -687,7 +701,7 @@ class GoogleDriveService {
         
         try {
           const op100SearchResponse = await this.drive.files.list({
-            q: `parents in '${GOOGLE_DRIVE_CONFIG.op100FolderId}' and mimeType='application/vnd.google-apps.folder' and name contains '${searchQuery}' and trashed=false`,
+            q: `parents in '${GOOGLE_DRIVE_CONFIG.op100FolderId}' and mimeType='application/vnd.google-apps.folder' and name contains '${escapedQuery}' and trashed=false`,
             includeItemsFromAllDrives: true,
             supportsAllDrives: true,
             fields: 'files(id, name, webViewLink, createdTime, parents)',

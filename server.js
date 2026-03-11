@@ -5511,23 +5511,24 @@ app.get('/api/opportunities/:uid/drive-folder/search', authenticateToken, async 
 
 // Search Google Drive folders
 app.get('/api/google-drive/folders/search', authenticateToken, async (req, res) => {
-  const searchQuery = req.query.q || '';
+  const searchQuery = (req.query.q || '').trim();
   console.log(`[GET /api/google-drive/folders/search] === START ===`);
   console.log(`[DEBUG] Search Query: "${searchQuery}"`);
 
   try {
-    // Initialize Google Drive service
     const driveService = new GoogleDriveService();
     const initialized = await driveService.initialize();
-    
+
     if (!initialized) {
-      throw new Error('Failed to initialize Google Drive service');
+      return res.status(503).json({
+        success: false,
+        error: 'Google Drive not configured',
+        message: 'GOOGLE_SERVICE_ACCOUNT_KEY or credentials file is missing or invalid. Check server env.',
+        folders: []
+      });
     }
 
-    // Search for folders
-    console.log(`[SEARCH] Searching for folders with query: "${searchQuery}"`);
     const folders = await driveService.searchFolders(searchQuery);
-    
     console.log(`[SEARCH] Found ${folders.length} folders`);
 
     res.json({
@@ -5536,13 +5537,14 @@ app.get('/api/google-drive/folders/search', authenticateToken, async (req, res) 
       query: searchQuery,
       count: folders.length
     });
-
   } catch (error) {
     console.error(`[GET /api/google-drive/folders/search] Error:`, error);
-    res.status(500).json({
+    const status = (error.code === 403 || (error.message && error.message.includes('permission'))) ? 403 : 500;
+    res.status(status).json({
+      success: false,
       error: 'Failed to search Google Drive folders',
-      message: error.message,
-      success: false
+      message: error.message || 'Unknown error',
+      folders: []
     });
   }
 });

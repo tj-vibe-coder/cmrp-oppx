@@ -3367,7 +3367,7 @@ async function performUserImportSearch() {
         const noResultsElement = document.querySelector('#importNoResultsState h3');
         const noResultsDesc = document.querySelector('#importNoResultsState p');
         if (noResultsElement) noResultsElement.textContent = 'Search Failed';
-        if (noResultsDesc) noResultsDesc.textContent = `Unable to search for "${query}". Please try again or check your connection.`;
+        if (noResultsDesc) noResultsDesc.textContent = error?.message || `Unable to search for "${query}". Please try again or check your connection.`;
     } finally {
         // Reset search button
         if (searchButton) {
@@ -3411,7 +3411,7 @@ async function performQuickImportSearch() {
         const noResultsElement = document.querySelector('#importNoResultsState h3');
         const noResultsDesc = document.querySelector('#importNoResultsState p');
         if (noResultsElement) noResultsElement.textContent = 'Search Failed';
-        if (noResultsDesc) noResultsDesc.textContent = 'Unable to search Google Drive. Please try again or check your connection.';
+        if (noResultsDesc) noResultsDesc.textContent = error?.message || 'Unable to search Google Drive. Please try again or check your connection.';
     }
 }
 
@@ -3486,13 +3486,12 @@ function resetGoogleDriveImportModal() {
 // Google Drive folder search function (used by both modals)
 async function searchGoogleDriveFolders(searchQuery) {
     console.log(`🔍 Searching Google Drive folders with query: "${searchQuery}"`);
-    
+
     const token = localStorage.getItem('authToken');
     if (!token) {
         throw new Error('No authentication token found');
     }
-    
-    // Use existing Google Drive search endpoint
+
     const response = await fetch(getApiUrl(`/api/google-drive/folders/search?q=${encodeURIComponent(searchQuery)}`), {
         method: 'GET',
         headers: {
@@ -3500,17 +3499,18 @@ async function searchGoogleDriveFolders(searchQuery) {
             'Content-Type': 'application/json'
         }
     });
-    
+
+    const data = await response.json().catch(() => ({}));
+
     if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        const msg = data.message || data.error || response.statusText;
+        throw new Error(msg);
     }
-    
-    const data = await response.json();
-    
+
     if (!data.success) {
-        throw new Error(data.error || 'Search failed');
+        throw new Error(data.message || data.error || 'Search failed');
     }
-    
+
     console.log(`✅ Found ${data.folders?.length || 0} folders`);
     return data.folders || [];
 }
