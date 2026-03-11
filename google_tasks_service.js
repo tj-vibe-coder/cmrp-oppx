@@ -437,7 +437,7 @@ class GoogleTasksService {
 
       // 1. Query proposals submitted in the past 7 days
       const proposals = await db.query(
-        `SELECT project_name, project_code, client, account_mgr, pic, bom, final_amt, submitted_date
+        `SELECT project_name, project_code, client, account_mgr, pic, bom, final_amt, submitted_date, google_drive_folder_url
          FROM opps_monitoring
          WHERE submitted_date >= date('now', '-7 days')
            AND status = 'Submitted'
@@ -513,8 +513,9 @@ class GoogleTasksService {
           `   PIC:         ${p.pic || 'N/A'}`,
           `   BOM:         ${p.bom || 'N/A'}`,
           `   Amount:      ${!isNaN(amt) && amt > 0 ? formatCurrency(amt) : 'N/A'}`,
-          `   Submitted:   ${p.submitted_date || 'N/A'}`
-        ].join('\n');
+          `   Submitted:   ${p.submitted_date || 'N/A'}`,
+          p.google_drive_folder_url ? `   Google Drive: ${p.google_drive_folder_url}` : null
+        ].filter(Boolean).join('\n');
       }).join('\n\n');
 
       const body = [
