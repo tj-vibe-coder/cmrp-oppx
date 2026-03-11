@@ -12,7 +12,7 @@ class GoogleTasksService {
    * Uses the assigner's OAuth tokens to send from their Gmail.
    * Falls back to the assigned user's tokens if assigner tokens unavailable.
    */
-  async sendAssignmentEmail({ assignedUserId, assignedByUserId, projectName, client, assignedByName, opportunityUid }) {
+  async sendAssignmentEmail({ assignedUserId, assignedByUserId, projectName, client, assignedByName, opportunityUid, driveFolderUrl }) {
     try {
       // Get the assigned user's Google email (recipient)
       const userTokens = await this.calendarOAuthService.getUserTokens(assignedUserId);
@@ -50,6 +50,7 @@ class GoogleTasksService {
         `  Project: ${projectName}`,
         client ? `  Client: ${client}` : null,
         `  Assigned by: ${assignedByName || 'System'}`,
+        driveFolderUrl ? `  Google Drive: ${driveFolderUrl}` : null,
         ``,
         `A Google Task has been created in your task list.`,
         `The task will be automatically completed when the proposal is submitted.`,
@@ -109,7 +110,7 @@ class GoogleTasksService {
    * Auto-sync: Create Google Task + send email when PIC is assigned.
    * Called directly from PIC assignment hooks.
    */
-  async onPICAssigned({ userId, assignedByUserId, opportunityUid, projectName, client, assignedByName, dueDate }) {
+  async onPICAssigned({ userId, assignedByUserId, opportunityUid, projectName, client, assignedByName, dueDate, driveFolderUrl }) {
     const results = { task: null, email: null };
 
     // 1. Create Google Task
@@ -119,7 +120,7 @@ class GoogleTasksService {
 
     // 2. Send email notification (from assigner to assignee)
     results.email = await this.sendAssignmentEmail({
-      assignedUserId: userId, assignedByUserId, projectName, client, assignedByName, opportunityUid
+      assignedUserId: userId, assignedByUserId, projectName, client, assignedByName, opportunityUid, driveFolderUrl
     });
 
     return results;

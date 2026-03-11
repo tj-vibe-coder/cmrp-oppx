@@ -3060,7 +3060,8 @@ app.post('/api/opportunities', authenticateToken,
               projectName: createdOpp.project_name || 'New Project',
               client: createdOpp.client || null,
               assignedByName: assignerName,
-              dueDate: createdOpp.forecast_date || createdOpp.submitted_date || null
+              dueDate: createdOpp.forecast_date || createdOpp.submitted_date || null,
+              driveFolderUrl: createdOpp.google_drive_folder_url || null
             });
           }
         }
@@ -3474,7 +3475,8 @@ app.put('/api/opportunities/:uid', authenticateToken,
               projectName: updatedOpp.project_name || 'Unknown Project',
               client: updatedOpp.client || null,
               assignedByName: assignerName,
-              dueDate: updatedOpp.forecast_date || updatedOpp.submitted_date || null
+              dueDate: updatedOpp.forecast_date || updatedOpp.submitted_date || null,
+              driveFolderUrl: updatedOpp.google_drive_folder_url || null
             });
           }
         }
