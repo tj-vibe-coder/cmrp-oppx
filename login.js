@@ -104,12 +104,21 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             try {
                 loadingScreen.classList.add('visible');
-                const response = await fetch((window.APP_CONFIG?.API_BASE_URL || '') + '/api/login', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email, password })
-                });
-                const data = await response.json();
+                const loginUrl = (window.APP_CONFIG?.API_BASE_URL || window.location.origin) + '/api/login';
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 90000); // 90s for cold backend
+                let response;
+                try {
+                    response = await fetch(loginUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ email, password }),
+                        signal: controller.signal
+                    });
+                } finally {
+                    clearTimeout(timeoutId);
+                }
+                const data = await response.json().catch(() => ({}));
                 if (!response.ok || !data.token) {
                     throw new Error(data.error || 'Login failed');
                 }
@@ -154,7 +163,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 }, 1500); // Increased delay to 1500ms
             } catch (err) {
                 loadingScreen.classList.remove('visible');
-                loginError.textContent = err.message || 'Login failed.';
+                const isNetworkError = !err.response && (err.name === 'TypeError' || err.message === 'Failed to fetch' || err.name === 'AbortError');
+                loginError.textContent = isNetworkError
+                    ? 'Cannot reach the server. The backend may be waking up—wait 30–60 seconds and try again.'
+                    : (err.message || 'Login failed.');
                 loginError.classList.remove('hidden');
             } finally {
                 loginSubmitBtn.disabled = false;
