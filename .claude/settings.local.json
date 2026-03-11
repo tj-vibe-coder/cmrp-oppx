@@ -22,7 +22,9 @@
       "Bash(tasklist:*)",
       "Bash(tskill:*)",
       "Bash(grep:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(find /Users/tjc/Downloads /Users/tjc/Desktop -name \"*.json\" -newer /Users/tjc/Downloads/app-attachment-d176aa9e912b.json 2>/dev/null | head -10)",
+      "Bash(find /Users/tjc/Downloads /Users/tjc/Desktop -name \"*.json\" -exec grep -l \"oppsmon\" {} \\\\; 2>/dev/null | head -5)"
     ],
     "deny": [],
     "ask": []
