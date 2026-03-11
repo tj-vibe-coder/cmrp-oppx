@@ -1114,6 +1114,11 @@ class SharedNavigation {
             const data = await response.json();
             console.log('[SHARED-NAV] Got OAuth URL:', data.authUrl);
 
+            // Ensure currentUserId is defined to prevent ReferenceError in beforeunload handler
+            if (typeof window.currentUserId === 'undefined') {
+                window.currentUserId = null;
+            }
+
             // Redirect to Google OAuth
             window.location.href = data.authUrl;
 
@@ -1236,8 +1241,9 @@ class SharedNavigation {
             window.history.replaceState({}, document.title, cleanUrl);
             
         } else if (authResult === 'error') {
-            console.error('[SHARED-NAV] Calendar authorization failed');
-            alert('Failed to connect Google Calendar. Please try again.');
+            const reason = urlParams.get('reason') || 'Unknown error';
+            console.error('[SHARED-NAV] Calendar authorization failed:', reason);
+            alert('Failed to connect Google Calendar: ' + reason);
             
             // Clean up URL
             const cleanUrl = window.location.pathname;

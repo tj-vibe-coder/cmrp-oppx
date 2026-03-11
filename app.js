@@ -9138,14 +9138,23 @@ function updateOnlineUsersDisplay() {
 
 // Clean up when user leaves
 function cleanupUserPresence() {
-    if (heartbeatInterval) {
-        clearInterval(heartbeatInterval);
-        heartbeatInterval = null;
-    }
-    
-    if (currentUserId) {
-        localStorage.removeItem(`user_heartbeat_${currentUserId}`);
-        console.log('[USER-INFO] Cleaned up user presence');
+    try {
+        if (typeof heartbeatInterval !== 'undefined' && heartbeatInterval) {
+            clearInterval(heartbeatInterval);
+            heartbeatInterval = null;
+        }
+
+        // Get user ID from JWT token in localStorage
+        const userId = typeof currentUserId !== 'undefined' && currentUserId
+            ? currentUserId
+            : getCurrentUserId();
+        if (userId) {
+            localStorage.removeItem(`user_heartbeat_${userId}`);
+            console.log('[USER-INFO] Cleaned up user presence');
+        }
+    } catch (e) {
+        // Don't let cleanup errors block page navigation
+        console.warn('[USER-INFO] Cleanup error (non-critical):', e.message);
     }
 }
 
@@ -9179,7 +9188,8 @@ window.addEventListener('pagehide', cleanupUserPresence);
 
 // Listen for storage changes (when other tabs update presence)
 window.addEventListener('storage', function(e) {
-    if (e.key && e.key.startsWith('user_heartbeat_') && e.key !== `user_heartbeat_${currentUserId}`) {
+    const userId = getCurrentUserId();
+    if (e.key && e.key.startsWith('user_heartbeat_') && userId && e.key !== `user_heartbeat_${userId}`) {
         console.log('[ONLINE-USERS] Detected presence update from another tab');
         fetchOtherUsersPresence();
     }

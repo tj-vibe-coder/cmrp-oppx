@@ -6,6 +6,13 @@ const XLSX = require('xlsx');
 const ExcelJS = require('exceljs');
 const XlsxPopulate = require('xlsx-populate');
 const GoogleDriveService = require('../../google_drive_service');
+const GoogleCalendarOAuthService = require('../../google_calendar_oauth_service');
+const GoogleTasksService = require('../../google_tasks_service');
+
+// Initialize Google Tasks service for proposal workbench
+const _calendarService = new GoogleCalendarOAuthService();
+_calendarService.initialize();
+const googleTasksService = new GoogleTasksService(_calendarService);
 
 // Add JSON parsing middleware for this router
 router.use(express.json());
@@ -369,8 +376,19 @@ router.put('/proposals/:id/status', async (req, res) => {
         };
         
         console.log(`[DATABASE] Successfully updated proposal ${id} status`);
+
+        // Google Tasks: Complete task when status changes to "Submitted"
+        if (dbStatus === 'Submitted') {
+          try {
+            await googleTasksService.completeTaskForOpportunity(id);
+            console.log(`[GOOGLE-TASKS] Completed task for submitted proposal ${id}`);
+          } catch (taskError) {
+            console.error(`[GOOGLE-TASKS] Error completing task on submission:`, taskError.message);
+          }
+        }
+
         res.json({ success: true, proposal });
-        
+
     } catch (error) {
         console.error(`[ERROR] Failed to update proposal ${req.params.id} status:`, error);
         res.status(500).json({ error: 'Failed to update proposal status' });

@@ -281,6 +281,9 @@ const GoogleCalendarOAuthService = require('./google_calendar_oauth_service');
 // Import NotificationService from the notifications router
 const { NotificationService } = require('./backend/routes/notifications');
 
+// Google Tasks Service Integration
+const GoogleTasksService = require('./google_tasks_service');
+
 // Add database middleware
 app.use((req, res, next) => {
     req.db = db; // Use db_adapter instead of pool for unified database interface
@@ -3020,7 +3023,33 @@ app.post('/api/opportunities', authenticateToken,
         // Don't fail the creation if notification creation fails
         console.error('Error creating assignment notifications for new opportunity:', notificationError);
       }
-      
+
+      // Create Google Tasks for PIC assignment on new opportunities
+      try {
+        const picValue = createdOpp.pic;
+        if (picValue && picValue.trim() !== '') {
+          const userQuery = "SELECT id, name FROM users WHERE UPPER(name) = UPPER(?) OR UPPER(email) = UPPER(?) LIMIT 1";
+          const userResult = await db.query(userQuery, [picValue.trim(), picValue.trim()]);
+
+          if (userResult.rows.length > 0) {
+            const picUserId = userResult.rows[0].id;
+            const assignerName = req.user?.name || req.user?.email || 'System';
+
+            await googleTasksService.onPICAssigned({
+              userId: picUserId,
+              opportunityUid: createdOpp.uid,
+              projectName: createdOpp.project_name || 'New Project',
+              client: createdOpp.client || null,
+              assignedByName: assignerName,
+              dueDate: createdOpp.forecast_date || createdOpp.submitted_date || null
+            });
+          }
+        }
+      } catch (taskError) {
+        // Don't fail the creation if Google Task creation fails
+        console.error('[GOOGLE-TASKS] Error creating task for new opportunity PIC:', taskError.message);
+      }
+
       res.status(201).json(createdOpp);
     } catch (error) {
       console.error('Error inserting new opportunity or revision:', error);
@@ -3404,7 +3433,46 @@ app.put('/api/opportunities/:uid', authenticateToken,
         // Don't fail the update if notification creation fails
         console.error('Error creating assignment notifications:', notificationError);
       }
-      
+
+      // Google Tasks: Create task for new PIC assignment
+      try {
+        const oldPic = currentOpp.pic;
+        const newPic = updatedOpp.pic;
+
+        if (oldPic !== newPic && newPic && newPic.trim() !== '') {
+          const userQuery = "SELECT id, name FROM users WHERE UPPER(name) = UPPER(?) OR UPPER(email) = UPPER(?) LIMIT 1";
+          const userResult = await db.query(userQuery, [newPic.trim(), newPic.trim()]);
+
+          if (userResult.rows.length > 0) {
+            const picUserId = userResult.rows[0].id;
+            const assignerName = req.user?.name || req.user?.email || 'System';
+
+            await googleTasksService.onPICAssigned({
+              userId: picUserId,
+              opportunityUid: uid,
+              projectName: updatedOpp.project_name || 'Unknown Project',
+              client: updatedOpp.client || null,
+              assignedByName: assignerName,
+              dueDate: updatedOpp.forecast_date || updatedOpp.submitted_date || null
+            });
+          }
+        }
+      } catch (taskError) {
+        console.error('[GOOGLE-TASKS] Error creating task for updated PIC:', taskError.message);
+      }
+
+      // Google Tasks: Complete task when status changes to "Submitted"
+      try {
+        const oldStatus = currentOpp.status;
+        const newStatus = updatedOpp.status;
+
+        if (oldStatus !== newStatus && newStatus === 'Submitted') {
+          await googleTasksService.completeTaskForOpportunity(uid);
+        }
+      } catch (taskError) {
+        console.error('[GOOGLE-TASKS] Error completing task on submission:', taskError.message);
+      }
+
       // Return success response with updated data
       res.json({
           success: true,
@@ -4419,6 +4487,9 @@ app.post('/api/opportunities/bulk-update-excel', authenticateToken, upload.singl
 const calendarService = new GoogleCalendarOAuthService();
 const calendarServiceInitialized = calendarService.initialize();
 
+// Initialize Google Tasks service (uses calendar OAuth tokens)
+const googleTasksService = new GoogleTasksService(calendarService);
+
 // Start OAuth flow for Google Calendar
 app.get('/auth/google/calendar', authenticateToken, (req, res) => {
   try {
@@ -4492,20 +4563,23 @@ app.get('/auth/google/calendar/callback', async (req, res) => {
       );
     } catch (callbackError) {
       console.error('[OAUTH] OAuth callback threw error:', callbackError.message);
-      return res.redirect('/?calendar_auth=error');
+      console.error('[OAUTH] Error stack:', callbackError.stack);
+      return res.redirect('/?calendar_auth=error&reason=' + encodeURIComponent(callbackError.message));
     }
 
     if (result && result.success) {
       console.log(`[OAUTH] Successfully connected calendar for: ${userInfo.username}`);
       res.redirect('/?calendar_auth=success&email=' + encodeURIComponent(result.googleEmail));
     } else {
-      console.error('[OAUTH] Failed to connect calendar:', result?.error || 'Unknown error');
-      res.redirect('/?calendar_auth=error');
+      const reason = result?.error || 'Unknown error';
+      console.error('[OAUTH] Failed to connect calendar:', reason);
+      res.redirect('/?calendar_auth=error&reason=' + encodeURIComponent(reason));
     }
 
   } catch (error) {
     console.error('[OAUTH] OAuth callback failed:', error.message);
-    res.redirect('/?calendar_auth=error');
+    console.error('[OAUTH] Error stack:', error.stack);
+    res.redirect('/?calendar_auth=error&reason=' + encodeURIComponent(error.message));
   }
 });
 
@@ -4560,9 +4634,18 @@ app.post('/api/calendar/sync', authenticateToken, async (req, res) => {
 
   } catch (error) {
     console.error('[API] Calendar sync failed:', error.message);
-    res.status(500).json({
+
+    // If token refresh fails, suggest reconnecting
+    const needsReconnect = error.message?.includes('unauthorized_client') ||
+                           error.message?.includes('invalid_grant') ||
+                           error.message?.includes('Token has been expired');
+
+    res.status(needsReconnect ? 401 : 500).json({
       error: 'Calendar sync failed',
-      message: error.message
+      message: needsReconnect
+        ? 'Your Google connection has expired. Please disconnect and reconnect your Google account.'
+        : error.message,
+      needsReconnect
     });
   }
 });
@@ -4644,6 +4727,84 @@ app.post('/api/admin/calendar/bulk-sync', authenticateToken, requireAdmin, async
 });
 
 // === END GOOGLE CALENDAR OAUTH ENDPOINTS ===
+
+// === GOOGLE TASKS API ENDPOINTS ===
+
+// Get Google Tasks integration status for the current user
+app.get('/api/google-tasks/status', authenticateToken, async (req, res) => {
+  try {
+    const status = await googleTasksService.getUserTasksStatus(req.user.id);
+    res.json({ success: true, ...status });
+  } catch (error) {
+    console.error('[GOOGLE-TASKS] Error getting status:', error.message);
+    res.status(500).json({ error: 'Failed to get Google Tasks status', message: error.message });
+  }
+});
+
+// Get pending Google Tasks for the current user
+app.get('/api/google-tasks/pending', authenticateToken, async (req, res) => {
+  try {
+    const result = await googleTasksService.getUserPendingTasks(req.user.id);
+    res.json(result);
+  } catch (error) {
+    console.error('[GOOGLE-TASKS] Error getting pending tasks:', error.message);
+    res.status(500).json({ error: 'Failed to get pending tasks', message: error.message });
+  }
+});
+
+// Manually create a Google Task for a PIC assignment
+app.post('/api/google-tasks/create', authenticateToken, async (req, res) => {
+  try {
+    const { opportunityUid } = req.body;
+
+    if (!opportunityUid) {
+      return res.status(400).json({ error: 'opportunityUid is required' });
+    }
+
+    // Get opportunity details
+    const oppResult = await db.query(
+      'SELECT uid, project_name, client, pic FROM opps_monitoring WHERE uid = ?',
+      [opportunityUid]
+    );
+
+    if (oppResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Opportunity not found' });
+    }
+
+    const opp = oppResult.rows[0];
+
+    const result = await googleTasksService.createTaskForPICAssignment({
+      userId: req.user.id,
+      opportunityUid: opp.uid,
+      projectName: opp.project_name,
+      client: opp.client,
+      assignedByName: 'Manual'
+    });
+
+    res.json(result);
+
+  } catch (error) {
+    console.error('[GOOGLE-TASKS] Error creating task:', error.message);
+    res.status(500).json({ error: 'Failed to create Google Task', message: error.message });
+  }
+});
+
+// Sync all current PIC assignments to Google Tasks
+app.post('/api/google-tasks/sync', authenticateToken, async (req, res) => {
+  try {
+    const userName = req.user.name || req.user.username || req.user.email;
+    console.log(`[GOOGLE-TASKS] Sync requested by: ${userName}`);
+
+    const result = await googleTasksService.syncPICAssignmentsToTasks(req.user.id, userName);
+    res.json(result);
+
+  } catch (error) {
+    console.error('[GOOGLE-TASKS] Error syncing tasks:', error.message);
+    res.status(500).json({ error: 'Failed to sync Google Tasks', message: error.message });
+  }
+});
+
+// === END GOOGLE TASKS API ENDPOINTS ===
 
 // --- PRODUCTION MIGRATION ENDPOINT ---
 app.post('/api/admin/run-last-excel-sync-migration', authenticateToken, async (req, res) => {

@@ -568,6 +568,33 @@ function setupEventListeners() {
     if (weekendToggle) {
         weekendToggle.addEventListener('change', toggleWeekends);
     }
+
+    // Google Tasks sync button
+    const syncGoogleTasksBtn = document.getElementById('syncGoogleTasksBtn');
+    if (syncGoogleTasksBtn) {
+        syncGoogleTasksBtn.addEventListener('click', async () => {
+            syncGoogleTasksBtn.disabled = true;
+            syncGoogleTasksBtn.innerHTML = '<span class="material-icons text-sm mr-1 animate-spin">sync</span> Syncing...';
+            try {
+                const response = await fetchWithAuth(getApiUrl('/api/google-tasks/sync'), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await response.json();
+                if (data.success) {
+                    alert(`Google Tasks synced! ${data.created} tasks created, ${data.skipped} already existed (${data.total} total PIC assignments).`);
+                } else {
+                    alert('Sync failed: ' + (data.error || data.message || 'Unknown error'));
+                }
+            } catch (error) {
+                console.error('[GOOGLE-TASKS] Sync error:', error);
+                alert('Failed to sync: ' + error.message);
+            } finally {
+                syncGoogleTasksBtn.disabled = false;
+                syncGoogleTasksBtn.innerHTML = '<span class="material-icons text-sm mr-1">task_alt</span> Sync to Google Tasks';
+            }
+        });
+    }
     
     // Day Action Menu
     const addTaskAction = document.getElementById('addTaskAction');
