@@ -9,19 +9,38 @@ class GoogleTasksService {
 
   /**
    * Send email notification via Gmail API when user is assigned as PIC.
-   * Uses the assigner's OAuth tokens to send via Gmail.
+   * Uses the assigner's OAuth tokens to send from their Gmail.
    * Falls back to the assigned user's tokens if assigner tokens unavailable.
    */
-  async sendAssignmentEmail({ assignedUserId, projectName, client, assignedByName, opportunityUid }) {
+  async sendAssignmentEmail({ assignedUserId, assignedByUserId, projectName, client, assignedByName, opportunityUid }) {
     try {
-      // Get the assigned user's Google email
+      // Get the assigned user's Google email (recipient)
       const userTokens = await this.calendarOAuthService.getUserTokens(assignedUserId);
       if (!userTokens || !userTokens.google_email) {
         console.log(`[GOOGLE-TASKS] No Google email found for user ${assignedUserId}, skipping email`);
-        return { success: false, reason: 'no_email' };
+        return { success: false, reason: 'no_recipient_email' };
       }
 
       const toEmail = userTokens.google_email;
+
+      // Determine sender: prefer assigner, fall back to assignee
+      let senderUserId = assignedByUserId || assignedUserId;
+      let senderTokens = null;
+
+      if (assignedByUserId) {
+        try {
+          senderTokens = await this.calendarOAuthService.ensureValidTokens(assignedByUserId);
+        } catch (e) {
+          console.log(`[GOOGLE-TASKS] Assigner (${assignedByUserId}) has no valid tokens, falling back to assignee`);
+        }
+      }
+
+      if (!senderTokens) {
+        // Fall back to assignee's tokens
+        senderUserId = assignedUserId;
+        senderTokens = await this.calendarOAuthService.ensureValidTokens(assignedUserId);
+      }
+
       const subject = `[CMRP OppX] New PIC Assignment: ${projectName}`;
       const body = [
         `Hi,`,
@@ -55,18 +74,16 @@ class GoogleTasksService {
         .replace(/\//g, '_')
         .replace(/=+$/, '');
 
-      // Use the assigned user's tokens to send (sends to self)
+      // Use the sender's (assigner's) tokens to send via their Gmail
       const oauth2Client = new google.auth.OAuth2(
         process.env.GOOGLE_OAUTH_CLIENT_ID,
         process.env.GOOGLE_OAUTH_CLIENT_SECRET,
         process.env.GOOGLE_OAUTH_REDIRECT_URI || 'http://localhost:3000/auth/google/calendar/callback'
       );
 
-      // Ensure valid tokens
-      const validTokens = await this.calendarOAuthService.ensureValidTokens(assignedUserId);
       oauth2Client.setCredentials({
-        access_token: validTokens.access_token,
-        refresh_token: validTokens.refresh_token
+        access_token: senderTokens.access_token,
+        refresh_token: senderTokens.refresh_token
       });
 
       const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
@@ -78,8 +95,8 @@ class GoogleTasksService {
         }
       });
 
-      console.log(`[GOOGLE-TASKS] Assignment email sent to ${toEmail}`);
-      return { success: true, email: toEmail };
+      console.log(`[GOOGLE-TASKS] Assignment email sent to ${toEmail} (from user ${senderUserId})`);
+      return { success: true, email: toEmail, sentBy: senderUserId };
 
     } catch (error) {
       console.error(`[GOOGLE-TASKS] Failed to send email:`, error.message);
@@ -92,7 +109,7 @@ class GoogleTasksService {
    * Auto-sync: Create Google Task + send email when PIC is assigned.
    * Called directly from PIC assignment hooks.
    */
-  async onPICAssigned({ userId, opportunityUid, projectName, client, assignedByName, dueDate }) {
+  async onPICAssigned({ userId, assignedByUserId, opportunityUid, projectName, client, assignedByName, dueDate }) {
     const results = { task: null, email: null };
 
     // 1. Create Google Task
@@ -100,9 +117,9 @@ class GoogleTasksService {
       userId, opportunityUid, projectName, client, assignedByName, dueDate
     });
 
-    // 2. Send email notification
+    // 2. Send email notification (from assigner to assignee)
     results.email = await this.sendAssignmentEmail({
-      assignedUserId: userId, projectName, client, assignedByName, opportunityUid
+      assignedUserId: userId, assignedByUserId, projectName, client, assignedByName, opportunityUid
     });
 
     return results;

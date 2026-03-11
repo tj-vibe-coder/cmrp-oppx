@@ -3055,6 +3055,7 @@ app.post('/api/opportunities', authenticateToken,
 
             await googleTasksService.onPICAssigned({
               userId: picUserId,
+              assignedByUserId: req.user?.id || null,
               opportunityUid: createdOpp.uid,
               projectName: createdOpp.project_name || 'New Project',
               client: createdOpp.client || null,
@@ -3468,6 +3469,7 @@ app.put('/api/opportunities/:uid', authenticateToken,
 
             await googleTasksService.onPICAssigned({
               userId: picUserId,
+              assignedByUserId: req.user?.id || null,
               opportunityUid: uid,
               projectName: updatedOpp.project_name || 'Unknown Project',
               client: updatedOpp.client || null,
