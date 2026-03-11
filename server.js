@@ -1003,6 +1003,25 @@ const snapshotService = new SnapshotAutomationService(pool);
 const BusinessSnapshotScheduler = require('./backend/services/business-snapshot-scheduler');
 const businessSnapshotService = new BusinessSnapshotScheduler(pool);
 
+// Weekly digest cron: Every Friday 9 AM Manila time
+const cron = require('node-cron');
+let weeklyDigestJob = null;
+
+if (process.env.NODE_ENV === 'production' || process.env.ENABLE_WEEKLY_DIGEST === 'true') {
+    weeklyDigestJob = cron.schedule('0 9 * * 5', async () => {
+        console.log('[WEEKLY-DIGEST] Cron triggered - sending weekly digest...');
+        try {
+            const result = await googleTasksService.sendWeeklyDigest();
+            console.log('[WEEKLY-DIGEST] Result:', JSON.stringify(result));
+        } catch (e) {
+            console.error('[WEEKLY-DIGEST] Cron error:', e.message);
+        }
+    }, { scheduled: true, timezone: 'Asia/Manila' });
+    console.log('[SERVER] Weekly digest email scheduled (Friday 9:00 AM Manila)');
+} else {
+    console.log('[SERVER] Weekly digest disabled (development mode). Set ENABLE_WEEKLY_DIGEST=true to enable.');
+}
+
 // Start automated snapshots in production or when explicitly enabled
 if (process.env.NODE_ENV === 'production' || process.env.ENABLE_AUTO_SNAPSHOTS === 'true') {
     console.log('[SERVER] Starting snapshot automation service (1:30 PM Monday schedule)...');
@@ -1012,6 +1031,18 @@ if (process.env.NODE_ENV === 'production' || process.env.ENABLE_AUTO_SNAPSHOTS =
 } else {
     console.log('[SERVER] Snapshot automation service disabled (development mode)');
 }
+
+// Manual trigger for weekly digest (for testing)
+app.post('/api/weekly-digest/send', authenticateToken, async (req, res) => {
+    try {
+        console.log('[WEEKLY-DIGEST] Manual trigger by user:', req.user?.email);
+        const result = await googleTasksService.sendWeeklyDigest();
+        res.json({ success: true, ...result });
+    } catch (error) {
+        console.error('[WEEKLY-DIGEST] Manual trigger error:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
 
 // Snapshot automation service status endpoint
 app.get('/api/snapshots/status', authenticateToken, (req, res) => {

@@ -425,6 +425,161 @@ class GoogleTasksService {
       return { success: false, tasks: [], error: error.message };
     }
   }
+
+  /**
+   * Send weekly digest email with proposals submitted in the past week.
+   * Sends to all users who have connected their Google account.
+   * Uses the first available admin's tokens to send.
+   */
+  async sendWeeklyDigest() {
+    try {
+      console.log(`[WEEKLY-DIGEST] === Starting weekly digest ===`);
+
+      // 1. Query proposals submitted in the past 7 days
+      const proposals = await db.query(
+        `SELECT project_name, project_code, client, account_mgr, pic, bom, final_amt, submitted_date
+         FROM opps_monitoring
+         WHERE submitted_date >= date('now', '-7 days')
+           AND status = 'Submitted'
+         ORDER BY submitted_date DESC`
+      );
+
+      if (proposals.rows.length === 0) {
+        console.log(`[WEEKLY-DIGEST] No proposals submitted this week, skipping email`);
+        return { success: true, sent: 0, reason: 'no_submissions' };
+      }
+
+      console.log(`[WEEKLY-DIGEST] Found ${proposals.rows.length} submitted proposals`);
+
+      // 2. Get all users with Google OAuth connected
+      const recipients = await db.query(
+        `SELECT u.id, u.name, u.email, u.account_type, ugo.google_email
+         FROM users u
+         INNER JOIN user_google_oauth ugo ON u.id = ugo.user_id
+         WHERE ugo.google_email IS NOT NULL
+         ORDER BY u.name ASC`
+      );
+
+      if (recipients.rows.length === 0) {
+        console.log(`[WEEKLY-DIGEST] No users with Google accounts connected, skipping`);
+        return { success: true, sent: 0, reason: 'no_recipients' };
+      }
+
+      // 3. Find a sender (prefer Admin, fall back to any connected user)
+      let senderUserId = null;
+      for (const r of recipients.rows) {
+        if (r.account_type === 'Admin' || r.account_type === 'System Admin') {
+          senderUserId = r.id;
+          break;
+        }
+      }
+      if (!senderUserId) senderUserId = recipients.rows[0].id;
+
+      let senderTokens;
+      try {
+        senderTokens = await this.calendarOAuthService.ensureValidTokens(senderUserId);
+      } catch (e) {
+        console.error(`[WEEKLY-DIGEST] Failed to get sender tokens:`, e.message);
+        return { success: false, error: 'No valid sender tokens available' };
+      }
+
+      // 4. Build email body
+      const now = new Date();
+      const weekStart = new Date(now);
+      weekStart.setDate(weekStart.getDate() - 7);
+      const formatDate = (d) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
+      const subject = `[CMRP OppX] Weekly Submissions Report - ${formatDate(now)}`;
+
+      // Calculate total amount
+      let totalAmt = 0;
+      for (const p of proposals.rows) {
+        const amt = parseFloat(String(p.final_amt || '0').replace(/[₱$,]/g, ''));
+        if (!isNaN(amt)) totalAmt += amt;
+      }
+
+      const formatCurrency = (amt) => {
+        return '₱' + amt.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      };
+
+      // Build table rows
+      const tableRows = proposals.rows.map((p, i) => {
+        const amt = parseFloat(String(p.final_amt || '0').replace(/[₱$,]/g, ''));
+        return [
+          `${i + 1}. ${p.project_name || 'N/A'}`,
+          `   Project No.: ${p.project_code || 'N/A'}`,
+          `   Client:      ${p.client || 'N/A'}`,
+          `   AM:          ${p.account_mgr || 'N/A'}`,
+          `   PIC:         ${p.pic || 'N/A'}`,
+          `   BOM:         ${p.bom || 'N/A'}`,
+          `   Amount:      ${!isNaN(amt) && amt > 0 ? formatCurrency(amt) : 'N/A'}`,
+          `   Submitted:   ${p.submitted_date || 'N/A'}`
+        ].join('\n');
+      }).join('\n\n');
+
+      const body = [
+        `Weekly Submissions Report`,
+        `${formatDate(weekStart)} - ${formatDate(now)}`,
+        ``,
+        `Total Proposals Submitted: ${proposals.rows.length}`,
+        `Total Amount: ${formatCurrency(totalAmt)}`,
+        ``,
+        `${'='.repeat(50)}`,
+        ``,
+        tableRows,
+        ``,
+        `${'='.repeat(50)}`,
+        ``,
+        `— CMRP OppX`,
+        ``,
+        `This is a computer-generated email. Please do not reply.`
+      ].join('\n');
+
+      // 5. Send to all recipients
+      const oauth2Client = new google.auth.OAuth2(
+        process.env.GOOGLE_OAUTH_CLIENT_ID,
+        process.env.GOOGLE_OAUTH_CLIENT_SECRET,
+        process.env.GOOGLE_OAUTH_REDIRECT_URI || 'http://localhost:3000/auth/google/calendar/callback'
+      );
+      oauth2Client.setCredentials({
+        access_token: senderTokens.access_token,
+        refresh_token: senderTokens.refresh_token
+      });
+      const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+
+      let sentCount = 0;
+      const recipientEmails = recipients.rows.map(r => r.google_email);
+
+      // Send one email with all recipients in To
+      const rawMessage = [
+        `To: ${recipientEmails.join(', ')}`,
+        `Subject: ${subject}`,
+        `Content-Type: text/plain; charset="UTF-8"`,
+        ``,
+        body
+      ].join('\n');
+
+      const encodedMessage = Buffer.from(rawMessage)
+        .toString('base64')
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '');
+
+      await gmail.users.messages.send({
+        userId: 'me',
+        requestBody: { raw: encodedMessage }
+      });
+
+      sentCount = recipientEmails.length;
+      console.log(`[WEEKLY-DIGEST] Email sent to ${sentCount} recipients: ${recipientEmails.join(', ')}`);
+
+      return { success: true, sent: sentCount, proposals: proposals.rows.length, recipients: recipientEmails };
+
+    } catch (error) {
+      console.error(`[WEEKLY-DIGEST] Failed:`, error.message);
+      return { success: false, error: error.message };
+    }
+  }
 }
 
 module.exports = GoogleTasksService;
