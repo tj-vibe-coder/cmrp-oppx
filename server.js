@@ -1032,11 +1032,29 @@ if (process.env.NODE_ENV === 'production' || process.env.ENABLE_AUTO_SNAPSHOTS =
     console.log('[SERVER] Snapshot automation service disabled (development mode)');
 }
 
-// Manual trigger for weekly digest (for testing)
+// Get available recipients for weekly digest
+app.get('/api/weekly-digest/recipients', authenticateToken, async (req, res) => {
+    try {
+        const recipients = await db.query(
+            `SELECT DISTINCT u.id, u.name, u.email, u.account_type, uct.google_email
+             FROM users u
+             INNER JOIN user_calendar_tokens uct ON u.id = uct.user_id
+             WHERE uct.google_email IS NOT NULL
+             ORDER BY u.name ASC`
+        );
+        res.json({ success: true, recipients: recipients.rows });
+    } catch (error) {
+        console.error('[WEEKLY-DIGEST] Failed to get recipients:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Manual trigger for weekly digest with optional recipient selection
 app.post('/api/weekly-digest/send', authenticateToken, async (req, res) => {
     try {
-        console.log('[WEEKLY-DIGEST] Manual trigger by user:', req.user?.email);
-        const result = await googleTasksService.sendWeeklyDigest();
+        const selectedRecipients = req.body?.recipients || null;
+        console.log('[WEEKLY-DIGEST] Manual trigger by user:', req.user?.email, selectedRecipients ? `to ${selectedRecipients.length} recipients` : '(all)');
+        const result = await googleTasksService.sendWeeklyDigest(selectedRecipients);
         res.json({ success: true, ...result });
     } catch (error) {
         console.error('[WEEKLY-DIGEST] Manual trigger error:', error.message);

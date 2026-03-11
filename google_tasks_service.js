@@ -431,7 +431,7 @@ class GoogleTasksService {
    * Sends to all users who have connected their Google account.
    * Uses the first available admin's tokens to send.
    */
-  async sendWeeklyDigest() {
+  async sendWeeklyDigest(selectedRecipients = null) {
     try {
       console.log(`[WEEKLY-DIGEST] === Starting weekly digest ===`);
 
@@ -454,7 +454,7 @@ class GoogleTasksService {
       console.log(`[WEEKLY-DIGEST] Found ${proposals.rows.length} submitted proposals`);
 
       // 2. Get all users with Google OAuth connected
-      const recipients = await db.query(
+      const allConnectedUsers = await db.query(
         `SELECT DISTINCT u.id, u.name, u.email, u.account_type, uct.google_email
          FROM users u
          INNER JOIN user_calendar_tokens uct ON u.id = uct.user_id
@@ -464,20 +464,33 @@ class GoogleTasksService {
          ORDER BY u.name ASC`
       );
 
-      if (recipients.rows.length === 0) {
+      if (allConnectedUsers.rows.length === 0) {
         console.log(`[WEEKLY-DIGEST] No users with Google accounts connected, skipping`);
         return { success: true, sent: 0, reason: 'no_recipients' };
       }
 
+      // If selectedRecipients provided, filter to only those emails
+      let recipients;
+      if (selectedRecipients && selectedRecipients.length > 0) {
+        recipients = allConnectedUsers.rows.filter(r => selectedRecipients.includes(r.google_email));
+        if (recipients.length === 0) {
+          console.log(`[WEEKLY-DIGEST] None of the selected recipients have Google accounts connected`);
+          return { success: true, sent: 0, reason: 'no_matching_recipients' };
+        }
+        console.log(`[WEEKLY-DIGEST] Manual send to ${recipients.length} selected recipients`);
+      } else {
+        recipients = allConnectedUsers.rows;
+      }
+
       // 3. Find a sender (prefer Admin, fall back to any connected user)
       let senderUserId = null;
-      for (const r of recipients.rows) {
+      for (const r of allConnectedUsers.rows) {
         if (r.account_type === 'Admin' || r.account_type === 'System Admin') {
           senderUserId = r.id;
           break;
         }
       }
-      if (!senderUserId) senderUserId = recipients.rows[0].id;
+      if (!senderUserId) senderUserId = allConnectedUsers.rows[0].id;
 
       let senderTokens;
       try {
@@ -554,7 +567,7 @@ class GoogleTasksService {
       const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
 
       let sentCount = 0;
-      const recipientEmails = recipients.rows.map(r => r.google_email);
+      const recipientEmails = recipients.map(r => r.google_email);
 
       // Send one email with all recipients in To
       const rawMessage = [

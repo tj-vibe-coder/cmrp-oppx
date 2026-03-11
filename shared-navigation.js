@@ -747,24 +747,95 @@ class SharedNavigation {
 
             if (name === 'TJC') {
                 btn.onclick = async () => {
-                    btn.disabled = true;
-                    btn.querySelector('.sidebar-item-text').textContent = 'Sending...';
                     try {
-                        const resp = await fetch(getApiUrl('/api/weekly-digest/send'), {
-                            method: 'POST',
+                        // Fetch available recipients
+                        const resp = await fetch(getApiUrl('/api/weekly-digest/recipients'), {
                             headers: { 'Authorization': `Bearer ${token}` }
                         });
                         const data = await resp.json();
-                        if (data.success) {
-                            alert(`Weekly digest sent! ${data.proposals || 0} proposals, ${data.sent || 0} recipients.`);
-                        } else {
-                            alert('Failed to send digest: ' + (data.error || 'Unknown error'));
+                        if (!data.success || !data.recipients?.length) {
+                            alert('No recipients with Google accounts connected.');
+                            return;
                         }
+
+                        // Build recipient picker modal
+                        let overlay = document.getElementById('digestRecipientOverlay');
+                        if (overlay) overlay.remove();
+
+                        overlay = document.createElement('div');
+                        overlay.id = 'digestRecipientOverlay';
+                        overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;';
+
+                        const modal = document.createElement('div');
+                        modal.style.cssText = 'background:var(--bg-primary,#fff);border-radius:12px;padding:24px;max-width:450px;width:90%;max-height:80vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.3);color:var(--text-primary,#111);';
+
+                        const checkboxes = data.recipients.map((r, i) => {
+                            const checked = 'checked';
+                            return `<label style="display:flex;align-items:center;gap:8px;padding:8px 4px;border-bottom:1px solid var(--border-color,#e5e7eb);cursor:pointer;">
+                                <input type="checkbox" value="${r.google_email}" ${checked} style="width:18px;height:18px;">
+                                <span><strong>${r.name}</strong> <span style="opacity:0.6;font-size:0.85em;">${r.google_email}</span></span>
+                            </label>`;
+                        }).join('');
+
+                        modal.innerHTML = `
+                            <h3 style="margin:0 0 4px 0;font-size:1.1em;">Send Weekly Digest</h3>
+                            <p style="margin:0 0 16px 0;font-size:0.85em;opacity:0.7;">Select recipients:</p>
+                            <div style="margin-bottom:12px;">
+                                <label style="display:flex;align-items:center;gap:8px;padding:6px 4px;cursor:pointer;font-weight:600;">
+                                    <input type="checkbox" id="digestSelectAll" checked style="width:18px;height:18px;">
+                                    Select All
+                                </label>
+                            </div>
+                            <div id="digestRecipientList">${checkboxes}</div>
+                            <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+                                <button id="digestCancelBtn" style="padding:8px 16px;border:1px solid var(--border-color,#d1d5db);border-radius:6px;background:transparent;cursor:pointer;color:inherit;">Cancel</button>
+                                <button id="digestSendBtn" style="padding:8px 16px;border:none;border-radius:6px;background:#2563eb;color:#fff;cursor:pointer;font-weight:600;">Send</button>
+                            </div>
+                        `;
+
+                        overlay.appendChild(modal);
+                        document.body.appendChild(overlay);
+
+                        // Select All toggle
+                        document.getElementById('digestSelectAll').onchange = (e) => {
+                            const boxes = document.querySelectorAll('#digestRecipientList input[type=checkbox]');
+                            boxes.forEach(b => b.checked = e.target.checked);
+                        };
+
+                        // Cancel
+                        document.getElementById('digestCancelBtn').onclick = () => overlay.remove();
+                        overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+
+                        // Send
+                        document.getElementById('digestSendBtn').onclick = async () => {
+                            const selected = Array.from(document.querySelectorAll('#digestRecipientList input[type=checkbox]:checked')).map(cb => cb.value);
+                            if (selected.length === 0) {
+                                alert('Please select at least one recipient.');
+                                return;
+                            }
+                            const sendBtn = document.getElementById('digestSendBtn');
+                            sendBtn.disabled = true;
+                            sendBtn.textContent = 'Sending...';
+                            try {
+                                const sendResp = await fetch(getApiUrl('/api/weekly-digest/send'), {
+                                    method: 'POST',
+                                    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ recipients: selected })
+                                });
+                                const sendData = await sendResp.json();
+                                overlay.remove();
+                                if (sendData.success) {
+                                    alert(`Weekly digest sent! ${sendData.proposals || 0} proposals, ${sendData.sent || 0} recipients.`);
+                                } else {
+                                    alert('Failed to send digest: ' + (sendData.error || 'Unknown error'));
+                                }
+                            } catch (err) {
+                                overlay.remove();
+                                alert('Error sending digest: ' + err.message);
+                            }
+                        };
                     } catch (e) {
-                        alert('Error sending digest: ' + e.message);
-                    } finally {
-                        btn.disabled = false;
-                        btn.querySelector('.sidebar-item-text').textContent = 'Send Weekly Digest';
+                        alert('Error loading recipients: ' + e.message);
                     }
                 };
             }
