@@ -61,31 +61,29 @@ const getAllowedOrigins = () => {
     if (process.env.FRONTEND_URL) {
       origins.push(process.env.FRONTEND_URL);
     }
-    console.log('🔒 [CORS] Production allowed origins:', origins);
     return origins;
   } else {
-    const devOrigins = ['http://localhost:3000', 'http://127.0.0.1:3000', 'http://localhost:5173'];
-    console.log('🔒 [CORS] Development allowed origins:', devOrigins);
-    return devOrigins;
+    return ['http://localhost:3000', 'http://127.0.0.1:3000', 'http://localhost:5173'];
   }
 };
 
+const allowedOriginsCache = getAllowedOrigins();
+if (process.env.NODE_ENV === 'production') {
+  console.log('🔒 [CORS] Production allowed origins:', allowedOriginsCache);
+} else {
+  console.log('🔒 [CORS] Development allowed origins:', allowedOriginsCache);
+}
+
 const corsOptions = {
   origin: function (origin, callback) {
-    const allowedOrigins = getAllowedOrigins();
-    
-    // Allow requests with no origin (mobile apps, Postman, etc.)
+    // Allow requests with no origin (same-origin, server-to-server, Postman, etc.)
     if (!origin) {
-      console.log('🔒 [CORS] Allowing request with no origin');
       return callback(null, true);
     }
-    
-    if (allowedOrigins.indexOf(origin) !== -1) {
-      console.log(`🔒 [CORS] Allowing origin: ${origin}`);
+    if (allowedOriginsCache.indexOf(origin) !== -1) {
       callback(null, true);
     } else {
       console.warn(`🔒 [CORS] Blocked origin: ${origin}`);
-      console.warn(`🔒 [CORS] Allowed origins are: ${allowedOrigins.join(', ')}`);
       callback(new Error('Not allowed by CORS'));
     }
   },
@@ -4827,10 +4825,6 @@ const server = app.listen(port, () => {
   console.log(`🚀 Server listening at http://localhost:${port}`);
   console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`📁 Serving static files from: ${__dirname}`);
-  
-  if (process.env.NODE_ENV === 'production') {
-    console.log('🔒 CORS allowed origins:', getAllowedOrigins());
-  }
   
   console.log(`🩺 Health check: http://localhost:${port}/api/health`);
   console.log(`🔒 CORS test: http://localhost:${port}/api/cors-test`);
