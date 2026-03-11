@@ -35,7 +35,9 @@ class GoogleTasksService {
         `A Google Task has been created in your task list.`,
         `The task will be automatically completed when the proposal is submitted.`,
         ``,
-        `— CMRP OppX`
+        `— CMRP OppX`,
+        ``,
+        `This is a computer-generated email. Please do not reply.`
       ].filter(l => l !== null).join('\n');
 
       // Build the raw email
