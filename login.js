@@ -59,25 +59,32 @@ document.addEventListener('DOMContentLoaded', function() {
     if (themeToggle) themeToggle.addEventListener('click', toggleTheme);
     initializeTheme();
 
-    // Check server status on page load
+    // Check server status on page load - show login form after short wait so cold backend doesn't block
+    const HEALTH_CHECK_TIMEOUT_MS = 6000;  // Show form after 6s even if backend hasn't responded
     async function checkServerStatus() {
+        loadingScreen.classList.add('visible');
+        const apiBase = (window.APP_CONFIG?.API_BASE_URL || '') + '/api/health';
+        const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('timeout')), HEALTH_CHECK_TIMEOUT_MS)
+        );
         try {
-            loadingScreen.classList.add('visible');
-            const response = await fetch((window.APP_CONFIG?.API_BASE_URL || '') + '/api/health');
-            if (response.ok) {
+            const response = await Promise.race([
+                fetch(apiBase),
+                timeoutPromise
+            ]);
+            if (response && response.ok) {
                 console.log('[SERVER] Server is ready');
-                loadingScreen.classList.remove('visible');
-            } else {
-                console.log('[SERVER] Server returned error status');
-                // Keep loading screen visible
             }
         } catch (error) {
-            console.log('[SERVER] Server is not responding, might be cold starting:', error);
-            // Keep loading screen visible
+            if (error && error.message === 'timeout') {
+                console.log('[SERVER] Backend may be waking up; showing login form. Sign in will retry.');
+            } else {
+                console.log('[SERVER] Server not yet ready:', error?.message || error);
+            }
         }
+        loadingScreen.classList.remove('visible');
     }
 
-    // Call checkServerStatus immediately
     checkServerStatus();
 
     // Login logic
