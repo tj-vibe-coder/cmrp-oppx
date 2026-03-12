@@ -164,7 +164,7 @@ router.post('/sync-from-drive/:proposalUid', async (req, res) => {
         if (!initialized) {
             return res.status(503).json({
                 success: false,
-                error: 'GOOGLE_SERVICE_ACCOUNT_KEY or credentials file is missing or invalid. Check server env.',
+                error: `Google Drive init failed: ${driveService.initError || 'unknown'}`,
                 step: 'drive_init'
             });
         }

@@ -46,6 +46,7 @@ class GoogleDriveService {
     this.drive = null;
     this.serviceAccountEmail = null;
     this._rootFolderValidated = false;
+    this.initError = null;
   }
 
   async _retryOnTransient(fn, label = 'Drive API', retries = 2) {
@@ -111,6 +112,7 @@ class GoogleDriveService {
         } catch (parseErr) {
           console.error('❌ Failed to parse GOOGLE_SERVICE_ACCOUNT_KEY as JSON:', parseErr.message);
           console.error('❌ First 100 chars:', serviceAccountKey.substring(0, 100));
+          this.initError = `JSON parse failed: ${parseErr.message}`;
           return false;
         }
         this.serviceAccountEmail = credentials?.client_email || null;
@@ -161,13 +163,10 @@ class GoogleDriveService {
       console.log('✅ Google Drive API initialized successfully');
       return true;
     } catch (error) {
-      console.error('❌ Failed to initialize Google Drive API:', error.message);
-      console.error('❌ Full error:', error.stack);
       const hasEnvKey = !!process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
-      console.error(`❌ GOOGLE_SERVICE_ACCOUNT_KEY present: ${hasEnvKey}`);
-      if (error.message.includes('ENOENT') || error.message.includes('no such file')) {
-        console.error('💡 Hint: Make sure GOOGLE_SERVICE_ACCOUNT_KEY environment variable is set in production');
-      }
+      this.initError = `${error.message} (env key present: ${hasEnvKey})`;
+      console.error('❌ Failed to initialize Google Drive API:', this.initError);
+      console.error('❌ Full error:', error.stack);
       return false;
     }
   }
