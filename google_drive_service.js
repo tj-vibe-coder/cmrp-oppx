@@ -106,21 +106,27 @@ class GoogleDriveService {
       if (serviceAccountKey) {
         console.log(`🔑 Using service account key from env (length=${serviceAccountKey.length}, starts="${serviceAccountKey.substring(0, 30)}...")`);
         // Parse the service account key from environment variable
-        // Render may convert \n escapes in the private_key to real newlines,
-        // which breaks JSON.parse. Fix by escaping literal newlines inside strings.
+        // Render converts \n escapes to real newlines in env vars, breaking JSON.parse
+        // for the private_key field. Fix by re-escaping newlines only within that field.
         let credentials;
         try {
           credentials = JSON.parse(serviceAccountKey);
         } catch (parseErr) {
           try {
-            // Replace real newlines inside the JSON string values with \\n
-            const fixed = serviceAccountKey.replace(/\n/g, '\\n').replace(/\r/g, '\\r');
+            // Re-escape newlines inside the private_key PEM block only
+            const fixed = serviceAccountKey.replace(
+              /("private_key"\s*:\s*")([\s\S]*?)(")/,
+              (match, prefix, content, suffix) => {
+                return prefix + content.replace(/\r?\n/g, '\\n') + suffix;
+              }
+            );
             credentials = JSON.parse(fixed);
-            console.log('🔑 Parsed service account key after fixing embedded newlines');
+            console.log('🔑 Parsed service account key after fixing private_key newlines');
           } catch (parseErr2) {
-            console.error('❌ Failed to parse GOOGLE_SERVICE_ACCOUNT_KEY as JSON:', parseErr.message);
-            console.error('❌ First 100 chars:', serviceAccountKey.substring(0, 100));
-            this.initError = `JSON parse failed: ${parseErr.message}`;
+            console.error('❌ Failed to parse GOOGLE_SERVICE_ACCOUNT_KEY (attempt 1):', parseErr.message);
+            console.error('❌ Failed to parse GOOGLE_SERVICE_ACCOUNT_KEY (attempt 2):', parseErr2.message);
+            console.error('❌ First 200 chars:', serviceAccountKey.substring(0, 200));
+            this.initError = `JSON parse failed: ${parseErr2.message}`;
             return false;
           }
         }
