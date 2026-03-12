@@ -79,17 +79,25 @@ class GoogleDriveService {
   async initialize() {
     try {
       console.log('🔑 Initializing Google Drive API...');
-      
+
       // Check if we have environment variables for service account
       const serviceAccountKey = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
-      
+
       let authConfig;
-      
+
       if (serviceAccountKey) {
-        console.log('🔑 Using service account key from environment variables');
+        console.log(`🔑 Using service account key from env (length=${serviceAccountKey.length}, starts="${serviceAccountKey.substring(0, 30)}...")`);
         // Parse the service account key from environment variable
-        const credentials = JSON.parse(serviceAccountKey);
+        let credentials;
+        try {
+          credentials = JSON.parse(serviceAccountKey);
+        } catch (parseErr) {
+          console.error('❌ Failed to parse GOOGLE_SERVICE_ACCOUNT_KEY as JSON:', parseErr.message);
+          console.error('❌ First 100 chars:', serviceAccountKey.substring(0, 100));
+          return false;
+        }
         this.serviceAccountEmail = credentials?.client_email || null;
+        console.log(`🔑 Service account email: ${this.serviceAccountEmail}`);
         
         authConfig = {
           credentials: credentials,
@@ -137,6 +145,9 @@ class GoogleDriveService {
       return true;
     } catch (error) {
       console.error('❌ Failed to initialize Google Drive API:', error.message);
+      console.error('❌ Full error:', error.stack);
+      const hasEnvKey = !!process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
+      console.error(`❌ GOOGLE_SERVICE_ACCOUNT_KEY present: ${hasEnvKey}`);
       if (error.message.includes('ENOENT') || error.message.includes('no such file')) {
         console.error('💡 Hint: Make sure GOOGLE_SERVICE_ACCOUNT_KEY environment variable is set in production');
       }
