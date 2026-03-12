@@ -5330,7 +5330,10 @@ app.post('/api/opportunities/:uid/drive-folder', authenticateToken, async (req, 
 
     // Create folder using Drive service
     const driveService = new GoogleDriveService();
-    await driveService.initialize();
+    const initialized = await driveService.initialize();
+    if (!initialized) {
+      return res.status(503).json({ success: false, error: 'GOOGLE_SERVICE_ACCOUNT_KEY or credentials file is missing or invalid. Check server env.' });
+    }
 
     const folderResult = await driveService.duplicateTemplateFolder(
       opportunity,
@@ -5395,7 +5398,10 @@ app.put('/api/opportunities/:uid/drive-folder', authenticateToken, async (req, r
   try {
     // Validate folder exists and is accessible
     const driveService = new GoogleDriveService();
-    await driveService.initialize();
+    const initialized = await driveService.initialize();
+    if (!initialized) {
+      return res.status(503).json({ success: false, error: 'GOOGLE_SERVICE_ACCOUNT_KEY or credentials file is missing or invalid. Check server env.' });
+    }
 
     const validation = await driveService.validateFolderAccess(folderId);
     if (!validation.valid) {
@@ -5456,10 +5462,13 @@ app.delete('/api/opportunities/:uid/drive-folder', authenticateToken, async (req
 
   try {
     const driveService = new GoogleDriveService();
-    await driveService.initialize();
+    const initialized = await driveService.initialize();
+    if (!initialized) {
+      return res.status(503).json({ success: false, error: 'GOOGLE_SERVICE_ACCOUNT_KEY or credentials file is missing or invalid. Check server env.' });
+    }
 
     const result = await driveService.unlinkFolder(
-      uid, 
+      uid,
       req.user.name || req.user.email,
       deleteFolder === 'true'
     );
@@ -5538,7 +5547,10 @@ app.get('/api/opportunities/drive-folders', authenticateToken, async (req, res) 
 
   try {
     const driveService = new GoogleDriveService();
-    await driveService.initialize();
+    const initialized = await driveService.initialize();
+    if (!initialized) {
+      return res.status(503).json({ success: false, error: 'GOOGLE_SERVICE_ACCOUNT_KEY or credentials file is missing or invalid. Check server env.' });
+    }
 
     const opportunities = await driveService.listOpportunitiesWithFolders();
 

@@ -159,8 +159,16 @@ router.post('/sync-from-drive/:proposalUid', async (req, res) => {
         
         // Initialize Google Drive service
         const driveService = new GoogleDriveService();
-        await driveService.initialize();
-        
+        const initialized = await driveService.initialize();
+
+        if (!initialized) {
+            return res.status(503).json({
+                success: false,
+                error: 'GOOGLE_SERVICE_ACCOUNT_KEY or credentials file is missing or invalid. Check server env.',
+                step: 'drive_init'
+            });
+        }
+
         // Sync proposal from Drive and get Excel file
         const syncResult = await driveService.syncProposalFromDrive(proposalUid);
         
