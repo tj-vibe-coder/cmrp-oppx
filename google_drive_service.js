@@ -138,24 +138,38 @@ class GoogleDriveService {
         this.serviceAccountEmail = credentials?.client_email || null;
         console.log(`🔑 Service account email: ${this.serviceAccountEmail}`);
 
-        // Fix private key PEM format — Render may corrupt whitespace/newlines
+        // Validate and fix private key PEM format
         if (credentials.private_key) {
-          const pk = credentials.private_key;
-          const headerMatch = pk.match(/(-----BEGIN [A-Z ]+-----)/);
-          const footerMatch = pk.match(/(-----END [A-Z ]+-----)/);
-          if (headerMatch && footerMatch) {
-            // Extract base64 content, strip ALL whitespace, reformat with 64-char lines
-            const header = headerMatch[1];
-            const footer = footerMatch[1];
-            const base64 = pk
-              .replace(header, '').replace(footer, '')
-              .replace(/\s/g, ''); // remove all whitespace (spaces, newlines, tabs)
-            const lines = [];
-            for (let i = 0; i < base64.length; i += 64) {
-              lines.push(base64.substring(i, i + 64));
+          const crypto = require('crypto');
+          try {
+            crypto.createPrivateKey(credentials.private_key);
+            console.log('🔑 Private key is valid');
+          } catch (keyErr) {
+            console.warn(`⚠️ Private key invalid (${keyErr.message}), attempting PEM reformat...`);
+            const pk = credentials.private_key;
+            const headerMatch = pk.match(/(-----BEGIN [A-Z ]+-----)/);
+            const footerMatch = pk.match(/(-----END [A-Z ]+-----)/);
+            if (headerMatch && footerMatch) {
+              const header = headerMatch[1];
+              const footer = footerMatch[1];
+              const base64 = pk
+                .replace(header, '').replace(footer, '')
+                .replace(/\s/g, '');
+              const lines = [];
+              for (let i = 0; i < base64.length; i += 64) {
+                lines.push(base64.substring(i, i + 64));
+              }
+              credentials.private_key = header + '\n' + lines.join('\n') + '\n' + footer + '\n';
+              console.log(`🔑 Reformatted private key: ${credentials.private_key.length} chars, ${lines.length} base64 lines`);
+              try {
+                crypto.createPrivateKey(credentials.private_key);
+                console.log('🔑 Reformatted key is valid');
+              } catch (keyErr2) {
+                console.error('❌ Private key still invalid after reformat:', keyErr2.message);
+                this.initError = `Private key invalid: ${keyErr2.message}`;
+                return false;
+              }
             }
-            credentials.private_key = header + '\n' + lines.join('\n') + '\n' + footer + '\n';
-            console.log(`🔑 Reformatted private key: ${credentials.private_key.length} chars, ${lines.length} base64 lines`);
           }
         }
 
