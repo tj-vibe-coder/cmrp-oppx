@@ -133,14 +133,26 @@ class GoogleDriveService {
         this.serviceAccountEmail = credentials?.client_email || null;
         console.log(`🔑 Service account email: ${this.serviceAccountEmail}`);
 
-        // Validate private key format
-        const pk = credentials.private_key || '';
-        console.log(`🔑 Private key length: ${pk.length}`);
-        console.log(`🔑 Private key starts: ${JSON.stringify(pk.substring(0, 40))}`);
-        console.log(`🔑 Private key ends: ${JSON.stringify(pk.substring(pk.length - 40))}`);
-        console.log(`🔑 Has BEGIN marker: ${pk.includes('-----BEGIN')}`);
-        console.log(`🔑 Has END marker: ${pk.includes('-----END')}`);
-        console.log(`🔑 Has real newlines: ${pk.includes('\n')}`);
+        // Fix private key PEM format — Render may corrupt whitespace/newlines
+        if (credentials.private_key) {
+          const pk = credentials.private_key;
+          const headerMatch = pk.match(/(-----BEGIN [A-Z ]+-----)/);
+          const footerMatch = pk.match(/(-----END [A-Z ]+-----)/);
+          if (headerMatch && footerMatch) {
+            // Extract base64 content, strip ALL whitespace, reformat with 64-char lines
+            const header = headerMatch[1];
+            const footer = footerMatch[1];
+            const base64 = pk
+              .replace(header, '').replace(footer, '')
+              .replace(/[\s\r\n\\n]/g, ''); // remove whitespace AND literal \n
+            const lines = [];
+            for (let i = 0; i < base64.length; i += 64) {
+              lines.push(base64.substring(i, i + 64));
+            }
+            credentials.private_key = header + '\n' + lines.join('\n') + '\n' + footer + '\n';
+            console.log(`🔑 Reformatted private key: ${credentials.private_key.length} chars, ${lines.length} base64 lines`);
+          }
+        }
 
         authConfig = {
           credentials: credentials,
