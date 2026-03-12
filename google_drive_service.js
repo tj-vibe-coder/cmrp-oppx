@@ -49,16 +49,17 @@ class GoogleDriveService {
     this.initError = null;
   }
 
-  async _retryOnTransient(fn, label = 'Drive API', retries = 2) {
+  async _retryOnTransient(fn, label = 'Drive API', retries = 4) {
     for (let attempt = 0; ; attempt++) {
       try {
         return await fn();
       } catch (error) {
         const msg = error.message || '';
-        const isTransient = msg.includes('ECONNRESET') || msg.includes('ETIMEDOUT') || msg.includes('socket hang up') || msg.includes('EPIPE');
+        const isTransient = msg.includes('ECONNRESET') || msg.includes('ETIMEDOUT') || msg.includes('socket hang up') || msg.includes('EPIPE') || msg.includes('ECONNREFUSED');
         if (isTransient && attempt < retries) {
-          console.warn(`⚠️ [${label}] ${msg} — retrying in 2s (attempt ${attempt + 1}/${retries})`);
-          await new Promise(r => setTimeout(r, 2000));
+          const delay = 2000 * (attempt + 1); // 2s, 4s, 6s, 8s
+          console.warn(`⚠️ [${label}] ${msg} — retrying in ${delay / 1000}s (attempt ${attempt + 1}/${retries})`);
+          await new Promise(r => setTimeout(r, delay));
           continue;
         }
         throw error;
@@ -197,9 +198,9 @@ class GoogleDriveService {
       // Create Drive API client
       this.drive = google.drive({ version: 'v3', auth: this.auth });
       
-      // Test the authentication
-      await this.auth.getClient();
-      
+      // Test the authentication (with retry for Render network issues)
+      await this._retryOnTransient(() => this.auth.getClient(), 'auth.getClient');
+
       console.log('✅ Google Drive API initialized successfully');
       return true;
     } catch (error) {
