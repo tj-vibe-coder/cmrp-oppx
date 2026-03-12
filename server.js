@@ -3120,6 +3120,33 @@ app.post('/api/opportunities', authenticateToken,
         console.error('[GOOGLE-TASKS] Error creating task for new opportunity PIC:', taskError.message);
       }
 
+      // Send email for BOM assignment on new opportunities
+      try {
+        const bomValue = createdOpp.bom;
+        if (bomValue && bomValue.trim() !== '') {
+          const userQuery = "SELECT id, name FROM users WHERE UPPER(name) = UPPER(?) OR UPPER(email) = UPPER(?) LIMIT 1";
+          const userResult = await db.query(userQuery, [bomValue.trim(), bomValue.trim()]);
+
+          if (userResult.rows.length > 0) {
+            const bomUserId = userResult.rows[0].id;
+            const assignerName = req.user?.name || req.user?.email || 'System';
+
+            await googleTasksService.onBOMAssigned({
+              userId: bomUserId,
+              assignedByUserId: req.user?.id || null,
+              opportunityUid: createdOpp.uid,
+              projectCode: createdOpp.project_code || null,
+              projectName: createdOpp.project_name || 'New Project',
+              client: createdOpp.client || null,
+              assignedByName: assignerName,
+              driveFolderUrl: createdOpp.google_drive_folder_url || null
+            });
+          }
+        }
+      } catch (taskError) {
+        console.error('[GOOGLE-TASKS] Error sending email for new opportunity BOM:', taskError.message);
+      }
+
       res.status(201).json(createdOpp);
     } catch (error) {
       console.error('Error inserting new opportunity or revision:', error);
@@ -3533,6 +3560,35 @@ app.put('/api/opportunities/:uid', authenticateToken,
         }
       } catch (taskError) {
         console.error('[GOOGLE-TASKS] Error creating task for updated PIC:', taskError.message);
+      }
+
+      // Send email for BOM assignment change
+      try {
+        const oldBom = currentOpp.bom;
+        const newBom = updatedOpp.bom;
+
+        if (oldBom !== newBom && newBom && newBom.trim() !== '') {
+          const userQuery = "SELECT id, name FROM users WHERE UPPER(name) = UPPER(?) OR UPPER(email) = UPPER(?) LIMIT 1";
+          const userResult = await db.query(userQuery, [newBom.trim(), newBom.trim()]);
+
+          if (userResult.rows.length > 0) {
+            const bomUserId = userResult.rows[0].id;
+            const assignerName = req.user?.name || req.user?.email || 'System';
+
+            await googleTasksService.onBOMAssigned({
+              userId: bomUserId,
+              assignedByUserId: req.user?.id || null,
+              opportunityUid: uid,
+              projectCode: updatedOpp.project_code || null,
+              projectName: updatedOpp.project_name || 'Unknown Project',
+              client: updatedOpp.client || null,
+              assignedByName: assignerName,
+              driveFolderUrl: updatedOpp.google_drive_folder_url || null
+            });
+          }
+        }
+      } catch (taskError) {
+        console.error('[GOOGLE-TASKS] Error sending email for updated BOM:', taskError.message);
       }
 
       // Google Tasks: Complete task when status changes to "Submitted"

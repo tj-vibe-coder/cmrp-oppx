@@ -12,7 +12,7 @@ class GoogleTasksService {
    * Uses the assigner's OAuth tokens to send from their Gmail.
    * Falls back to the assigned user's tokens if assigner tokens unavailable.
    */
-  async sendAssignmentEmail({ assignedUserId, assignedByUserId, projectCode, projectName, client, assignedByName, opportunityUid, driveFolderUrl }) {
+  async sendAssignmentEmail({ assignedUserId, assignedByUserId, projectCode, projectName, client, assignedByName, opportunityUid, driveFolderUrl, role = 'PIC' }) {
     try {
       // Get the assigned user's Google email (recipient)
       const userTokens = await this.calendarOAuthService.getUserTokens(assignedUserId);
@@ -41,11 +41,11 @@ class GoogleTasksService {
         senderTokens = await this.calendarOAuthService.ensureValidTokens(assignedUserId);
       }
 
-      const subject = `[CMRP OppX] New PIC Assignment: ${projectName}`;
+      const subject = `[CMRP OppX] New ${role} Assignment: ${projectName}`;
       const body = [
         `Hi,`,
         ``,
-        `You have been assigned as PIC for the following project:`,
+        `You have been assigned as ${role} for the following project:`,
         ``,
         projectCode ? `  Project No.: ${projectCode}` : null,
         `  Project: ${projectName}`,
@@ -121,10 +121,19 @@ class GoogleTasksService {
 
     // 2. Send email notification (from assigner to assignee)
     results.email = await this.sendAssignmentEmail({
-      assignedUserId: userId, assignedByUserId, projectCode, projectName, client, assignedByName, opportunityUid, driveFolderUrl
+      assignedUserId: userId, assignedByUserId, projectCode, projectName, client, assignedByName, opportunityUid, driveFolderUrl, role: 'PIC'
     });
 
     return results;
+  }
+
+  /**
+   * Send email when BOM is assigned (no Google Task, just email).
+   */
+  async onBOMAssigned({ userId, assignedByUserId, projectCode, projectName, client, assignedByName, driveFolderUrl, opportunityUid }) {
+    return await this.sendAssignmentEmail({
+      assignedUserId: userId, assignedByUserId, projectCode, projectName, client, assignedByName, opportunityUid, driveFolderUrl, role: 'BOM'
+    });
   }
 
   /**
