@@ -144,7 +144,7 @@ class GoogleDriveService {
             const footer = footerMatch[1];
             const base64 = pk
               .replace(header, '').replace(footer, '')
-              .replace(/[\s\r\n\\n]/g, ''); // remove whitespace AND literal \n
+              .replace(/\s/g, ''); // remove all whitespace (spaces, newlines, tabs)
             const lines = [];
             for (let i = 0; i < base64.length; i += 64) {
               lines.push(base64.substring(i, i + 64));
