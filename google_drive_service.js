@@ -48,6 +48,23 @@ class GoogleDriveService {
     this._rootFolderValidated = false;
   }
 
+  async _retryOnTransient(fn, label = 'Drive API', retries = 2) {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await fn();
+      } catch (error) {
+        const msg = error.message || '';
+        const isTransient = msg.includes('ECONNRESET') || msg.includes('ETIMEDOUT') || msg.includes('socket hang up') || msg.includes('EPIPE');
+        if (isTransient && attempt < retries) {
+          console.warn(`⚠️ [${label}] ${msg} — retrying in 2s (attempt ${attempt + 1}/${retries})`);
+          await new Promise(r => setTimeout(r, 2000));
+          continue;
+        }
+        throw error;
+      }
+    }
+  }
+
   _isServiceAccountQuotaError(error) {
     const msg = String(error?.message || '').toLowerCase();
     if (msg.includes('service accounts do not have storage quota')) return true;
@@ -1067,12 +1084,12 @@ class GoogleDriveService {
       console.log(`🔍 Looking for Calcsheet folder in: ${mainFolderId}`);
 
       // Search for "Calcsheet" folder within the main folder
-      const searchResponse = await this.drive.files.list({
+      const searchResponse = await this._retryOnTransient(() => this.drive.files.list({
         q: `parents in '${mainFolderId}' and mimeType='application/vnd.google-apps.folder' and name contains 'Calcsheet' and trashed=false`,
         includeItemsFromAllDrives: true,
         supportsAllDrives: true,
         fields: 'files(id, name, webViewLink)'
-      });
+      }), 'findCalcsheetFolder');
 
       const folders = searchResponse.data.files || [];
       
@@ -1106,13 +1123,13 @@ class GoogleDriveService {
       console.log(`📄 Searching for Excel files in folder: ${folderId}`);
 
       // Search for Excel files matching the CMRP pattern
-      const searchResponse = await this.drive.files.list({
+      const searchResponse = await this._retryOnTransient(() => this.drive.files.list({
         q: `parents in '${folderId}' and (name contains '${filePattern}' and (name contains '.xlsx' or name contains '.xls')) and trashed=false`,
         includeItemsFromAllDrives: true,
         supportsAllDrives: true,
         fields: 'files(id, name, size, modifiedTime, createdTime)',
         orderBy: 'modifiedTime desc'
-      });
+      }), 'findExcelFiles');
 
       const files = searchResponse.data.files || [];
       console.log(`📊 Found ${files.length} Excel files matching pattern`);
@@ -1144,41 +1161,43 @@ class GoogleDriveService {
         throw new Error(`Invalid MAX_EXCEL_DOWNLOAD_BYTES: ${process.env.MAX_EXCEL_DOWNLOAD_BYTES}`);
       }
 
-      // Download the file as a stream to avoid OOM/crashes (ECONNRESET)
-      const response = await this.drive.files.get(
-        {
-          fileId: fileId,
-          alt: 'media'
-        },
-        {
-          responseType: 'stream'
-        }
-      );
-
-      const stream = response.data;
-      const buffer = await new Promise((resolve, reject) => {
-        const chunks = [];
-        let total = 0;
-
-        stream.on('data', (chunk) => {
-          const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-          total += buf.length;
-
-          if (total > maxBytes) {
-            const err = new Error(
-              `Excel download aborted: file too large (${total} bytes). Limit is ${maxBytes} bytes.`
-            );
-            // Destroy stream to stop downloading
-            stream.destroy(err);
-            return;
+      // Download with retry for transient network errors (ECONNRESET on Render)
+      const buffer = await this._retryOnTransient(async () => {
+        const response = await this.drive.files.get(
+          {
+            fileId: fileId,
+            alt: 'media'
+          },
+          {
+            responseType: 'stream',
+            timeout: 120000 // 2 minute timeout
           }
+        );
 
-          chunks.push(buf);
+        const stream = response.data;
+        return new Promise((resolve, reject) => {
+          const chunks = [];
+          let total = 0;
+
+          stream.on('data', (chunk) => {
+            const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+            total += buf.length;
+
+            if (total > maxBytes) {
+              const err = new Error(
+                `Excel download aborted: file too large (${total} bytes). Limit is ${maxBytes} bytes.`
+              );
+              stream.destroy(err);
+              return;
+            }
+
+            chunks.push(buf);
+          });
+
+          stream.on('end', () => resolve(Buffer.concat(chunks, total)));
+          stream.on('error', (err) => reject(err));
         });
-
-        stream.on('end', () => resolve(Buffer.concat(chunks, total)));
-        stream.on('error', (err) => reject(err));
-      });
+      }, 'downloadExcelFile');
 
       console.log(`✅ Downloaded Excel file: ${fileName} (${buffer.length} bytes)`);
       
