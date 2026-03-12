@@ -106,14 +106,23 @@ class GoogleDriveService {
       if (serviceAccountKey) {
         console.log(`🔑 Using service account key from env (length=${serviceAccountKey.length}, starts="${serviceAccountKey.substring(0, 30)}...")`);
         // Parse the service account key from environment variable
+        // Render may convert \n escapes in the private_key to real newlines,
+        // which breaks JSON.parse. Fix by escaping literal newlines inside strings.
         let credentials;
         try {
           credentials = JSON.parse(serviceAccountKey);
         } catch (parseErr) {
-          console.error('❌ Failed to parse GOOGLE_SERVICE_ACCOUNT_KEY as JSON:', parseErr.message);
-          console.error('❌ First 100 chars:', serviceAccountKey.substring(0, 100));
-          this.initError = `JSON parse failed: ${parseErr.message}`;
-          return false;
+          try {
+            // Replace real newlines inside the JSON string values with \\n
+            const fixed = serviceAccountKey.replace(/\n/g, '\\n').replace(/\r/g, '\\r');
+            credentials = JSON.parse(fixed);
+            console.log('🔑 Parsed service account key after fixing embedded newlines');
+          } catch (parseErr2) {
+            console.error('❌ Failed to parse GOOGLE_SERVICE_ACCOUNT_KEY as JSON:', parseErr.message);
+            console.error('❌ First 100 chars:', serviceAccountKey.substring(0, 100));
+            this.initError = `JSON parse failed: ${parseErr.message}`;
+            return false;
+          }
         }
         this.serviceAccountEmail = credentials?.client_email || null;
         console.log(`🔑 Service account email: ${this.serviceAccountEmail}`);
