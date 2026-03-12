@@ -132,7 +132,16 @@ class GoogleDriveService {
         }
         this.serviceAccountEmail = credentials?.client_email || null;
         console.log(`🔑 Service account email: ${this.serviceAccountEmail}`);
-        
+
+        // Validate private key format
+        const pk = credentials.private_key || '';
+        console.log(`🔑 Private key length: ${pk.length}`);
+        console.log(`🔑 Private key starts: ${JSON.stringify(pk.substring(0, 40))}`);
+        console.log(`🔑 Private key ends: ${JSON.stringify(pk.substring(pk.length - 40))}`);
+        console.log(`🔑 Has BEGIN marker: ${pk.includes('-----BEGIN')}`);
+        console.log(`🔑 Has END marker: ${pk.includes('-----END')}`);
+        console.log(`🔑 Has real newlines: ${pk.includes('\n')}`);
+
         authConfig = {
           credentials: credentials,
           scopes: [
