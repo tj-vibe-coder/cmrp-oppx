@@ -104,30 +104,34 @@ class GoogleDriveService {
       let authConfig;
 
       if (serviceAccountKey) {
-        console.log(`🔑 Using service account key from env (length=${serviceAccountKey.length}, starts="${serviceAccountKey.substring(0, 30)}...")`);
-        // Parse the service account key from environment variable
-        // Render converts \n escapes to real newlines in env vars, breaking JSON.parse
-        // for the private_key field. Fix by re-escaping newlines only within that field.
+        // Try 3 strategies: (1) direct JSON parse, (2) base64 decode then parse, (3) fix newlines then parse
         let credentials;
+        // Strategy 1: direct parse
         try {
           credentials = JSON.parse(serviceAccountKey);
-        } catch (parseErr) {
+          console.log('🔑 Parsed service account key directly');
+        } catch (_e1) {
+          // Strategy 2: base64 decode (recommended for Render — avoids all newline issues)
           try {
-            // Re-escape newlines inside the private_key PEM block only
-            const fixed = serviceAccountKey.replace(
-              /("private_key"\s*:\s*")([\s\S]*?)(")/,
-              (match, prefix, content, suffix) => {
-                return prefix + content.replace(/\r?\n/g, '\\n') + suffix;
-              }
-            );
-            credentials = JSON.parse(fixed);
-            console.log('🔑 Parsed service account key after fixing private_key newlines');
-          } catch (parseErr2) {
-            console.error('❌ Failed to parse GOOGLE_SERVICE_ACCOUNT_KEY (attempt 1):', parseErr.message);
-            console.error('❌ Failed to parse GOOGLE_SERVICE_ACCOUNT_KEY (attempt 2):', parseErr2.message);
-            console.error('❌ First 200 chars:', serviceAccountKey.substring(0, 200));
-            this.initError = `JSON parse failed: ${parseErr2.message}`;
-            return false;
+            const decoded = Buffer.from(serviceAccountKey, 'base64').toString('utf8');
+            credentials = JSON.parse(decoded);
+            console.log('🔑 Parsed service account key from base64');
+          } catch (_e2) {
+            // Strategy 3: fix newlines in private_key field
+            try {
+              const fixed = serviceAccountKey.replace(
+                /("private_key"\s*:\s*")([\s\S]*?)(")/,
+                (match, prefix, content, suffix) => {
+                  return prefix + content.replace(/\r?\n/g, '\\n') + suffix;
+                }
+              );
+              credentials = JSON.parse(fixed);
+              console.log('🔑 Parsed service account key after fixing newlines');
+            } catch (parseErr) {
+              console.error('❌ All 3 parse strategies failed:', parseErr.message);
+              this.initError = `JSON parse failed: ${parseErr.message}`;
+              return false;
+            }
           }
         }
         this.serviceAccountEmail = credentials?.client_email || null;
