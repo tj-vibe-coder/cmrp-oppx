@@ -609,16 +609,29 @@ class GoogleTasksService {
     }
   }
 
+  static OP100_REQUIRED_RECIPIENTS = [
+    'tyronejames.caballero@cmrpautomation.com',
+    'rojel.rivera@cmrpautomation.com',
+    'procurement@cmrpautomation.com',
+    'jayson.bornales@cmrpautomation.com',
+    'crisostomo.diaz@cmrpautomation.com',
+    'dianne.rael@cmrpautomation.com',
+    'marjori.cortez@cmrpautomation.com',
+    'jun@cmr.ph',
+    'Jun.ortiz@cmrpautomation.com',
+  ];
+
   /**
    * Send email notification when a project is awarded (OP100).
-   * Sends to account managers and admins.
+   * Always sends to the hardcoded OP100_REQUIRED_RECIPIENTS list,
+   * plus any additional admins/account managers with Google connected.
    */
   async sendOP100Email({ projectCode, projectName, client, accountMgr, pic, bom, finalAmt, margin, driveFolderUrl, changedByName }) {
     try {
       console.log(`[OP100-EMAIL] Sending OP100 notification for: ${projectName}`);
 
-      // Get recipients: account managers + admins with Google connected
-      const recipients = await db.query(
+      // Find a sender with valid Google OAuth tokens (prefer Admin)
+      const tokenUsers = await db.query(
         `SELECT DISTINCT u.id, u.name, u.email, u.account_type, uct.google_email
          FROM users u
          INNER JOIN user_calendar_tokens uct ON u.id = uct.user_id
@@ -628,20 +641,19 @@ class GoogleTasksService {
          ORDER BY u.name ASC`
       );
 
-      if (recipients.rows.length === 0) {
-        console.log(`[OP100-EMAIL] No recipients found, skipping`);
-        return { success: false, reason: 'no_recipients' };
-      }
-
-      // Find sender (prefer Admin)
       let senderUserId = null;
-      for (const r of recipients.rows) {
+      for (const r of tokenUsers.rows) {
         if (r.account_type === 'Admin' || r.account_type === 'System Admin') {
           senderUserId = r.id;
           break;
         }
       }
-      if (!senderUserId) senderUserId = recipients.rows[0].id;
+      if (!senderUserId && tokenUsers.rows.length > 0) senderUserId = tokenUsers.rows[0].id;
+
+      if (!senderUserId) {
+        console.log(`[OP100-EMAIL] No user with Google tokens found to act as sender, skipping`);
+        return { success: false, reason: 'no_sender' };
+      }
 
       let senderTokens;
       try {
@@ -650,6 +662,12 @@ class GoogleTasksService {
         console.error(`[OP100-EMAIL] Failed to get sender tokens:`, e.message);
         return { success: false, error: 'No valid sender tokens' };
       }
+
+      // Build de-duped recipient list: required list + any DB-discovered google_emails
+      const extraEnv = (process.env.OP100_NOTIFICATION_EMAILS || '').split(',').map(e => e.trim()).filter(Boolean);
+      const dbEmails = tokenUsers.rows.map(r => r.google_email).filter(Boolean);
+      const allEmails = [...GoogleTasksService.OP100_REQUIRED_RECIPIENTS, ...extraEnv, ...dbEmails];
+      const recipientEmails = [...new Set(allEmails.map(e => e.toLowerCase()))];
 
       const amt = parseFloat(String(finalAmt || '0').replace(/[₱$,]/g, ''));
       const formatCurrency = (v) => '₱' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -676,8 +694,6 @@ class GoogleTasksService {
         ``,
         `This is a computer-generated email. Please do not reply.`
       ].filter(Boolean).join('\n');
-
-      const recipientEmails = recipients.rows.map(r => r.google_email);
 
       const rawMessage = [
         `To: ${recipientEmails.join(', ')}`,

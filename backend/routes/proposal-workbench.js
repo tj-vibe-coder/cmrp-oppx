@@ -473,7 +473,13 @@ router.put('/proposals/:id/fields', async (req, res) => {
             values.push(margin);
         }
 
+        // Capture old opp_status before update for OP100 detection
+        let oldOppStatus = null;
         if (opp_status !== undefined) {
+            try {
+                const prev = await db.query('SELECT opp_status FROM opps_monitoring WHERE uid = ?', [id]);
+                if (prev.rows.length > 0) oldOppStatus = (prev.rows[0].opp_status || '').toUpperCase();
+            } catch (_) { /* non-critical */ }
             updateFields.push(`opp_status = ?`);
             values.push(opp_status);
         }
@@ -494,7 +500,7 @@ router.put('/proposals/:id/fields', async (req, res) => {
             UPDATE opps_monitoring
             SET ${updateFields.join(', ')}
             WHERE uid = ?
-            RETURNING uid, project_name, client, status, final_amt, account_mgr, remarks_comments, pic, bom, rev, margin, opp_status, submitted_date
+            RETURNING uid, project_code, project_name, client, status, final_amt, account_mgr, remarks_comments, pic, bom, rev, margin, opp_status, submitted_date, google_drive_folder_url
         `;
 
         const result = await db.query(query, values);
@@ -521,6 +527,27 @@ router.put('/proposals/:id/fields', async (req, res) => {
         };
         
         console.log(`[DATABASE] Successfully updated proposal ${id} fields: ${updateFields.join(', ')}`);
+
+        // Send OP100 email if status just changed to OP100
+        if (oldOppStatus !== null && oldOppStatus !== 'OP100' && (opp_status || '').toUpperCase() === 'OP100') {
+          try {
+            await googleTasksService.sendOP100Email({
+              projectCode: updatedRow.project_code || null,
+              projectName: updatedRow.project_name || 'Unknown Project',
+              client: updatedRow.client || null,
+              accountMgr: updatedRow.account_mgr || null,
+              pic: updatedRow.pic || null,
+              bom: updatedRow.bom || null,
+              finalAmt: updatedRow.final_amt || null,
+              margin: updatedRow.margin || null,
+              driveFolderUrl: updatedRow.google_drive_folder_url || null,
+              changedByName: req.user?.name || req.user?.email || 'System'
+            });
+          } catch (op100Err) {
+            console.error('[OP100-EMAIL] Error sending from proposal workbench:', op100Err.message);
+          }
+        }
+
         res.json({ success: true, proposal });
         
     } catch (error) {
