@@ -672,27 +672,23 @@ class GoogleTasksService {
       const amt = parseFloat(String(finalAmt || '0').replace(/[₱$,]/g, ''));
       const formatCurrency = (v) => '₱' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-      const subject = `[CMRP OppX] 🎉 Project Awarded (OP100): ${projectName}`;
+      const subjectParts = ['[CMRP OppX] 🎉 Project Awarded :', projectCode || '', projectName];
+      const subject = subjectParts.filter(Boolean).join(' ').trim();
       const body = [
         `A project has been awarded (OP100)!`,
         ``,
-        projectCode ? `  Project No.: ${projectCode}` : null,
-        `  Project:     ${projectName}`,
-        `  Client:      ${client || 'N/A'}`,
-        `  AM:          ${accountMgr || 'N/A'}`,
-        `  PIC:         ${pic || 'N/A'}`,
-        `  BOM:         ${bom || 'N/A'}`,
-        `  Amount:      ${!isNaN(amt) && amt > 0 ? formatCurrency(amt) : 'N/A'}`,
-        margin ? `  Margin:      ${margin}%` : null,
-        driveFolderUrl ? `  Google Drive: ${driveFolderUrl}` : null,
+        projectCode ? `Project #: ${projectCode}` : null,
+        `Project Name: ${projectName}`,
+        `AM: ${accountMgr || 'N/A'}`,
+        `Amount: ${!isNaN(amt) && amt > 0 ? formatCurrency(amt) : 'N/A'}`,
+        margin ? `Margin: ${margin}%` : null,
+        driveFolderUrl ? `Google Drive Link: ${driveFolderUrl}` : null,
         ``,
-        `  Updated by:  ${changedByName}`,
-        ``,
-        `Congratulations to the team!`,
+        `Updated by: ${changedByName}`,
         ``,
         `— CMRP OppX`,
         ``,
-        `This is a computer-generated email. Please do not reply.`
+        `This is a System-generated email. Please do not reply.`
       ].filter(Boolean).join('\n');
 
       const rawMessage = [
