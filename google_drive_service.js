@@ -138,38 +138,38 @@ class GoogleDriveService {
         this.serviceAccountEmail = credentials?.client_email || null;
         console.log(`🔑 Service account email: ${this.serviceAccountEmail}`);
 
-        // Validate and fix private key PEM format
+        // Validate private key and convert to PKCS8 PEM to avoid OpenSSL compat issues
         if (credentials.private_key) {
           const crypto = require('crypto');
+          let pk = credentials.private_key;
+
+          // If key is corrupted (bad whitespace/newlines), reformat it
           try {
-            crypto.createPrivateKey(credentials.private_key);
-            console.log('🔑 Private key is valid');
-          } catch (keyErr) {
-            console.warn(`⚠️ Private key invalid (${keyErr.message}), attempting PEM reformat...`);
-            const pk = credentials.private_key;
+            crypto.createPrivateKey(pk);
+          } catch (_e) {
+            console.warn('⚠️ Private key needs reformat, fixing PEM...');
             const headerMatch = pk.match(/(-----BEGIN [A-Z ]+-----)/);
             const footerMatch = pk.match(/(-----END [A-Z ]+-----)/);
             if (headerMatch && footerMatch) {
               const header = headerMatch[1];
               const footer = footerMatch[1];
-              const base64 = pk
-                .replace(header, '').replace(footer, '')
-                .replace(/\s/g, '');
+              const b64 = pk.replace(header, '').replace(footer, '').replace(/\s/g, '');
               const lines = [];
-              for (let i = 0; i < base64.length; i += 64) {
-                lines.push(base64.substring(i, i + 64));
-              }
-              credentials.private_key = header + '\n' + lines.join('\n') + '\n' + footer + '\n';
-              console.log(`🔑 Reformatted private key: ${credentials.private_key.length} chars, ${lines.length} base64 lines`);
-              try {
-                crypto.createPrivateKey(credentials.private_key);
-                console.log('🔑 Reformatted key is valid');
-              } catch (keyErr2) {
-                console.error('❌ Private key still invalid after reformat:', keyErr2.message);
-                this.initError = `Private key invalid: ${keyErr2.message}`;
-                return false;
-              }
+              for (let i = 0; i < b64.length; i += 64) lines.push(b64.substring(i, i + 64));
+              pk = header + '\n' + lines.join('\n') + '\n' + footer + '\n';
             }
+          }
+
+          // Re-export as PKCS8 PEM to guarantee compatibility with all OpenSSL versions
+          try {
+            const keyObj = crypto.createPrivateKey(pk);
+            credentials.private_key = keyObj.export({ type: 'pkcs8', format: 'pem' });
+            const testSig = crypto.createSign('RSA-SHA256').update('test').sign(keyObj, 'base64');
+            console.log(`🔑 Private key valid (PKCS8 exported, sign OK, sig: ${testSig.length} chars)`);
+          } catch (keyErr) {
+            console.error('❌ Private key invalid:', keyErr.message);
+            this.initError = `Private key invalid: ${keyErr.message}`;
+            return false;
           }
         }
 

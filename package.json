@@ -45,6 +45,9 @@
     "snapshot-server": "node snapshot_server.js",
     "dev-snapshot": "nodemon snapshot_server.js"
   },
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",

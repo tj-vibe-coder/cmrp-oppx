@@ -5143,6 +5143,7 @@ app.use((err, req, res, next) => {
 const server = app.listen(port, () => {
   console.log(`🚀 Server listening at http://localhost:${port}`);
   console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`📦 Node ${process.version}, OpenSSL ${process.versions.openssl}`);
   console.log(`📁 Serving static files from: ${__dirname}`);
   
   console.log(`🩺 Health check: http://localhost:${port}/api/health`);
