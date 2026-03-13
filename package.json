@@ -36,7 +36,7 @@
   "main": "server.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node server.js",
+    "start": "NODE_OPTIONS=--openssl-legacy-provider node server.js",
     "dev": "NODE_ENV=development node server.js",
     "prod": "NODE_ENV=production node server.js",
     "build": "tailwindcss -i src/input.css -o assets/tailwind.css --minify",

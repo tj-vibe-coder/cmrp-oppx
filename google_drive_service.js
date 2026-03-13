@@ -138,16 +138,21 @@ class GoogleDriveService {
         this.serviceAccountEmail = credentials?.client_email || null;
         console.log(`🔑 Service account email: ${this.serviceAccountEmail}`);
 
-        // Validate private key and convert to PKCS8 PEM to avoid OpenSSL compat issues
+        // Validate private key and convert to PKCS8 PEM to avoid OpenSSL 3.x compat issues
         if (credentials.private_key) {
           const crypto = require('crypto');
           let pk = credentials.private_key;
+          let keyObj = null;
 
-          // If key is corrupted (bad whitespace/newlines), reformat it
+          // Strategy A: try loading PEM as-is
           try {
-            crypto.createPrivateKey(pk);
+            keyObj = crypto.createPrivateKey(pk);
           } catch (_e) {
-            console.warn('⚠️ Private key needs reformat, fixing PEM...');
+            console.warn('⚠️ Direct PEM load failed, reformatting...');
+          }
+
+          // Strategy B: reformat PEM (fix bad whitespace/newlines from env vars)
+          if (!keyObj) {
             const headerMatch = pk.match(/(-----BEGIN [A-Z ]+-----)/);
             const footerMatch = pk.match(/(-----END [A-Z ]+-----)/);
             if (headerMatch && footerMatch) {
@@ -157,17 +162,52 @@ class GoogleDriveService {
               const lines = [];
               for (let i = 0; i < b64.length; i += 64) lines.push(b64.substring(i, i + 64));
               pk = header + '\n' + lines.join('\n') + '\n' + footer + '\n';
+              try {
+                keyObj = crypto.createPrivateKey(pk);
+                console.log('🔑 PEM reformat succeeded');
+              } catch (_e2) {
+                console.warn('⚠️ Reformatted PEM load failed, trying DER...');
+              }
             }
+          }
+
+          // Strategy C: bypass PEM decoder — load raw DER bytes with explicit type
+          if (!keyObj) {
+            const headerMatch = pk.match(/(-----BEGIN [A-Z ]+-----)/);
+            const footerMatch = pk.match(/(-----END [A-Z ]+-----)/);
+            if (headerMatch && footerMatch) {
+              const header = headerMatch[1];
+              const footer = footerMatch[1];
+              const b64 = pk.replace(header, '').replace(footer, '').replace(/\s/g, '');
+              const derBuffer = Buffer.from(b64, 'base64');
+              // Try PKCS8 (-----BEGIN PRIVATE KEY-----) first, then PKCS1 (-----BEGIN RSA PRIVATE KEY-----)
+              const types = header.includes('RSA') ? ['pkcs1', 'pkcs8'] : ['pkcs8', 'pkcs1'];
+              for (const type of types) {
+                try {
+                  keyObj = crypto.createPrivateKey({ key: derBuffer, format: 'der', type });
+                  console.log(`🔑 DER load succeeded with type: ${type}`);
+                  break;
+                } catch (_e3) {
+                  // try next type
+                }
+              }
+            }
+          }
+
+          if (!keyObj) {
+            const snippet = pk.substring(0, 50).replace(/\n/g, '\\n');
+            console.error(`❌ Private key could not be loaded (starts with: "${snippet}...")`);
+            this.initError = 'Private key invalid: all load strategies failed (PEM, reformat, DER)';
+            return false;
           }
 
           // Re-export as PKCS8 PEM to guarantee compatibility with all OpenSSL versions
           try {
-            const keyObj = crypto.createPrivateKey(pk);
             credentials.private_key = keyObj.export({ type: 'pkcs8', format: 'pem' });
             const testSig = crypto.createSign('RSA-SHA256').update('test').sign(keyObj, 'base64');
             console.log(`🔑 Private key valid (PKCS8 exported, sign OK, sig: ${testSig.length} chars)`);
           } catch (keyErr) {
-            console.error('❌ Private key invalid:', keyErr.message);
+            console.error('❌ Private key export/sign failed:', keyErr.message);
             this.initError = `Private key invalid: ${keyErr.message}`;
             return false;
           }
