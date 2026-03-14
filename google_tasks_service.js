@@ -672,7 +672,7 @@ class GoogleTasksService {
       const amt = parseFloat(String(finalAmt || '0').replace(/[₱$,]/g, ''));
       const formatCurrency = (v) => '₱' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-      const subjectParts = ['[CMRP OppX] 🎉 Project Awarded :', projectCode || '', projectName];
+      const subjectParts = ['[CMRP OppX] Project Awarded :', projectCode || '', projectName];
       const subject = subjectParts.filter(Boolean).join(' ').trim();
       const body = [
         `A project has been awarded (OP100)!`,
