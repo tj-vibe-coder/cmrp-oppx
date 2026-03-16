@@ -81,6 +81,7 @@ let totalOpportunities;
 let totalSubmitted;
 let op100Summary;
 let op90Summary;
+let op60Summary;
 let totalDeclined;
 let totalInactive;
 let lostSummary;
@@ -622,6 +623,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     totalSubmitted = document.getElementById('totalSubmitted');
     op100Summary = document.getElementById('op100Summary');
     op90Summary = document.getElementById('op90Summary');
+    op60Summary = document.getElementById('op60Summary');
     totalDeclined = document.getElementById('totalDeclined');
     totalInactive = document.getElementById('totalInactive');
     lostSummary = document.getElementById('lostSummary');
@@ -7167,6 +7169,11 @@ async function loadDashboardData(dataToUse = null) {
             const op90AmountStr = formatWithDelta(metrics.op90Amount, snapshotData?.op90_amount, true);
             op90Summary.textContent = `${op90CountStr} / ${op90AmountStr}`;
         }
+        if (op60Summary) {
+            const op60CountStr = formatWithDelta(metrics.op60Count, snapshotData?.op60_count);
+            const op60AmountStr = formatWithDelta(metrics.op60Amount, snapshotData?.op60_amount, true);
+            op60Summary.textContent = `${op60CountStr} / ${op60AmountStr}`;
+        }
         if (totalDeclined) {
             totalDeclined.textContent = formatWithDelta(metrics.declinedCount, snapshotData?.declined_count) || '--';
         }
@@ -7182,6 +7189,7 @@ async function loadDashboardData(dataToUse = null) {
         if (totalSubmitted) totalSubmitted.textContent = '--';
         if (op100Summary) op100Summary.textContent = '--';
         if (op90Summary) op90Summary.textContent = '--';
+        if (op60Summary) op60Summary.textContent = '--';
         if (totalDeclined) totalDeclined.textContent = '--';
         if (totalInactive) totalInactive.textContent = '--';
     }
@@ -7197,6 +7205,8 @@ function calculateMetrics(data) {
             op100Amount: 0,
             op90Count: 0,
             op90Amount: 0,
+            op60Count: 0,
+            op60Amount: 0,
             declinedCount: 0,
             inactiveCount: 0
         };
@@ -7204,6 +7214,7 @@ function calculateMetrics(data) {
     
     const op100Opportunities = data.filter(opp => opp.opp_status?.toLowerCase() === 'op100');
     const op90Opportunities = data.filter(opp => opp.opp_status?.toLowerCase() === 'op90');
+    const op60Opportunities = data.filter(opp => opp.opp_status?.toLowerCase() === 'op60');
     
     return {
         totalOpportunities: data.length,
@@ -7212,6 +7223,8 @@ function calculateMetrics(data) {
         op100Amount: op100Opportunities.reduce((sum, opp) => sum + (parseCurrency(opp.final_amt) || 0), 0),
         op90Count: op90Opportunities.length,
         op90Amount: op90Opportunities.reduce((sum, opp) => sum + (parseCurrency(opp.final_amt) || 0), 0),
+        op60Count: op60Opportunities.length,
+        op60Amount: op60Opportunities.reduce((sum, opp) => sum + (parseCurrency(opp.final_amt) || 0), 0),
         declinedCount: data.filter(opp => opp.decision?.toLowerCase() === 'decline').length,
         inactiveCount: data.filter(opp => opp.opp_status?.toLowerCase() === 'inactive').length
     };
@@ -7457,6 +7470,14 @@ function updateSummaryCounters(data) {
         sum + (parseCurrency(opp.final_amt) || 0), 0
     );
     
+    const op60Opportunities = data.filter(opp => 
+        opp.opp_status?.toLowerCase() === 'op60'
+    );
+    const op60Count = op60Opportunities.length;
+    const op60Amount = op60Opportunities.reduce((sum, opp) => 
+        sum + (parseCurrency(opp.final_amt) || 0), 0
+    );
+    
     const inactiveCount = data.filter(opp => 
         opp.opp_status?.toLowerCase() === 'inactive'
     ).length;
@@ -7477,6 +7498,7 @@ function updateSummaryCounters(data) {
     if (totalOpportunities) totalOpportunities.textContent = data.length;
     if (op100Summary) op100Summary.textContent = `${op100Count} / ${abbreviateAmount(op100Amount)}`;
     if (op90Summary) op90Summary.textContent = `${op90Count} / ${abbreviateAmount(op90Amount)}`;
+    if (op60Summary) op60Summary.textContent = `${op60Count} / ${abbreviateAmount(op60Amount)}`;
     if (totalInactive) totalInactive.textContent = inactiveCount;
     if (totalSubmitted) totalSubmitted.textContent = submittedOppsCount;
        if (totalDeclined) totalDeclined.textContent = declinedCount;
@@ -7577,8 +7599,17 @@ async function initializeTable() {
         h !== 'google_drive_folder_url'    // Hide Google Drive folder URL
     );
     headers = [projectNameHeader, ...otherHeaders].filter(Boolean);
-    // Final headers for table
-    
+
+    // Fixed column order: 5 = Amount, 6 = Margin, 7 = OP (opp_status)
+    const amountKey = headers.find(h => norm(h) === 'finalamt' || h === 'final_amt');
+    const marginKey = headers.find(h => norm(h) === 'margin');
+    const opKey = headers.find(h => norm(h) === 'oppstatus' || h === 'opp_status');
+    const fixedOrder = [amountKey, marginKey, opKey].filter(Boolean);
+    if (fixedOrder.length) {
+        headers = headers.filter(h => !fixedOrder.includes(h));
+        fixedOrder.forEach((key, i) => headers.splice(4 + i, 0, key));
+    }
+
     // Check if A,C,R,U,D fields are present
     const acrudFields = ['a', 'c', 'r', 'u', 'd'];
     acrudFields.forEach(field => {
