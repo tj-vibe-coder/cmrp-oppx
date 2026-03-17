@@ -628,6 +628,11 @@ class GoogleTasksService {
    */
   async sendOP100Email({ projectCode, projectName, client, accountMgr, pic, bom, finalAmt, margin, driveFolderUrl, changedByName }) {
     try {
+      if (global.op100MaintenanceMode) {
+        console.log('[OP100-EMAIL] Skipped (runtime maintenance mode ON)');
+        return { success: false, reason: 'maintenance_mode' };
+      }
+
       console.log(`[OP100-EMAIL] Sending OP100 notification for: ${projectName}`);
 
       // Find a sender with valid Google OAuth tokens (prefer Admin)

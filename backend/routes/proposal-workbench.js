@@ -529,7 +529,14 @@ router.put('/proposals/:id/fields', async (req, res) => {
         console.log(`[DATABASE] Successfully updated proposal ${id} fields: ${updateFields.join(', ')}`);
 
         // Send OP100 email if status just changed to OP100
-        if (oldOppStatus !== null && oldOppStatus !== 'OP100' && (opp_status || '').toUpperCase() === 'OP100') {
+        const projectNameUpper = (updatedRow.project_name || '').toUpperCase();
+        const skipOp100Email =
+            projectNameUpper === 'ADI B1 BMS ANNUAL PM SERVICE';
+
+        if (oldOppStatus !== null &&
+            oldOppStatus !== 'OP100' &&
+            (opp_status || '').toUpperCase() === 'OP100' &&
+            !skipOp100Email) {
           try {
             await googleTasksService.sendOP100Email({
               projectCode: updatedRow.project_code || null,

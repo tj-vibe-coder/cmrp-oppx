@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net https://cdn.tailwindcss.com https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.tailwindcss.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' http://localhost:3000 https://cmrp-oppx.onrender.com https://cdn.jsdelivr.net;">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <title>Client Data – oppX</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <link rel="icon" type="image/svg+xml" href="Logo/CMRP Logo Dark.svg">
+    <link rel="alternate icon" href="Logo/CMRP Logo Light.svg">
+    <link rel="stylesheet" href="styles.css?v=1750741234">
+    <script src="config.js"></script>
+    <script src="api-utils.js"></script>
+    <script src="shared-navigation.js?v=1750741456"></script>
+    <style>
+        .dashboard-card { background: var(--bg-card); border: 1px solid var(--border-primary); border-radius: 0.5rem; padding: 1rem; }
+        .dashboard-title { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-secondary); margin-bottom: 0.25rem; }
+        .dashboard-value { font-size: 1.125rem; font-weight: 600; color: var(--text-primary); }
+        .client-data-card .dashboard-title { text-align: left; }
+        .client-data-list-wrapper { max-height: 260px; overflow-y: auto; padding-right: 0.25rem; }
+        .client-data-list { list-style: none; padding: 0; margin: 0; font-size: 0.875rem; }
+        .client-data-list li {
+            padding: 0.35rem 0;
+            border-bottom: 1px solid var(--border-primary);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .client-data-list li span:first-child {
+            flex: 1 1 auto;
+            min-width: 0;
+            text-align: left;
+            word-break: break-word;
+        }
+        .client-data-list li span:last-child {
+            flex: 0 0 auto;
+            white-space: nowrap;
+            text-align: right;
+        }
+        .client-data-list li:last-child { border-bottom: none; }
+        .client-data-list li.client-data-row-empty { opacity: 0.35; }
+        .auth-loading-screen { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; background: var(--bg-primary); color: var(--text-primary); }
+        .auth-loading-spinner { border: 3px solid var(--border-primary); border-top: 3px solid #3b82f6; border-radius: 50%; width: 2rem; height: 2rem; animation: spin 1s linear infinite; margin-bottom: 1rem; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .auth-login-btn { background: #3b82f6; color: white; border: none; border-radius: 0.5rem; padding: 0.75rem 1.5rem; font-size: 1rem; font-weight: 500; cursor: pointer; }
+        /* Year filter sizing/readability */
+        #yearFilter {
+            font-size: 0.8rem;
+            padding: 0.15rem 0.5rem;
+            min-width: 4.5rem;
+            max-width: 6rem;
+        }
+    </style>
+</head>
+<body class="min-h-screen">
+    <div id="authLoadingScreen" class="auth-loading-screen">
+        <img id="authLoadingLogo" src="Logo/CMRP Logo Dark.svg" alt="CMRP" style="height: 48px; margin-bottom: 1rem;">
+        <h1 class="text-xl font-semibold">Client Data</h1>
+        <p class="auth-loading-message text-sm opacity-80 mb-4">Verifying authentication...</p>
+        <div class="auth-loading-spinner"></div>
+        <div id="authLoadingRedirect" style="display: none;">
+            <p class="text-red-500 mb-4">Authentication required</p>
+            <button id="authLoginRedirectBtn" class="auth-login-btn">Go to Login</button>
+        </div>
+    </div>
+
+    <div id="appContent" class="app-content" style="display: none;">
+        <div id="shared-topbar"></div>
+        <div class="layout-container" style="display: flex; min-height: 100vh;">
+            <div id="shared-sidebar"></div>
+            <button id="mobileSidebarToggle" class="mobile-sidebar-toggle" aria-label="Menu">
+                <span class="material-icons">menu</span>
+            </button>
+            <main class="main-content" style="flex: 1; padding: 1.5rem;">
+                <div class="container mx-auto">
+                    <div class="sticky top-0 z-10 -mx-6 px-6 py-4 mb-6 bg-inherit border-b border-gray-200 dark:border-gray-700">
+                        <h1 class="text-2xl font-bold mb-2">Client Data</h1>
+                        <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">Summary and trends by client: where we submit the most, win the most, lose the most, and where we have the most inactive opportunities.</p>
+                        <div class="flex flex-wrap items-center gap-4">
+                            <label class="text-sm font-medium">Year:</label>
+                            <select id="yearFilter" class="filter-dropdown border rounded px-3 py-2 min-w-[120px] bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border-gray-300 dark:border-gray-600">
+                                <option value="all">All years</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Summary cards: top 10 accounts per category (excludes 0); 10 fixed rows, blank if no data -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
+                        <div class="dashboard-card client-data-card">
+                            <div class="dashboard-title">Accounts with the Highest Proposal Submissions</div>
+                            <div class="client-data-list-wrapper mt-2">
+                                <ul id="topSubmitList" class="client-data-list"></ul>
+                            </div>
+                        </div>
+                        <div class="dashboard-card client-data-card">
+                            <div class="dashboard-title">Accounts with the Highest Wins (OP100)</div>
+                            <div class="client-data-list-wrapper mt-2">
+                                <ul id="topWinList" class="client-data-list"></ul>
+                            </div>
+                        </div>
+                        <div class="dashboard-card client-data-card">
+                            <div class="dashboard-title">Accounts with the Highest Win Rate (OP100/Submissions)</div>
+                            <div class="client-data-list-wrapper mt-2">
+                                <ul id="topWinRateList" class="client-data-list"></ul>
+                            </div>
+                        </div>
+                        <div class="dashboard-card client-data-card">
+                            <div class="dashboard-title">Accounts with the Highest Lost Opportunities</div>
+                            <div class="client-data-list-wrapper mt-2">
+                                <ul id="topLostList" class="client-data-list"></ul>
+                            </div>
+                        </div>
+                        <div class="dashboard-card client-data-card">
+                            <div class="dashboard-title">Accounts with the Highest Inactivity</div>
+                            <div class="client-data-list-wrapper mt-2">
+                                <ul id="topInactiveList" class="client-data-list"></ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Charts -->
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+                        <div class="dashboard-card">
+                            <h3 class="text-lg font-semibold mb-4">Submissions by client (top 10)</h3>
+                            <div style="position: relative; height: 320px;">
+                                <canvas id="chartSubmit"></canvas>
+                            </div>
+                        </div>
+                        <div class="dashboard-card">
+                            <h3 class="text-lg font-semibold mb-4">Wins (OP100) by client (top 10)</h3>
+                            <div style="position: relative; height: 320px;">
+                                <canvas id="chartWin"></canvas>
+                            </div>
+                        </div>
+                        <div class="dashboard-card">
+                            <h3 class="text-lg font-semibold mb-4">Lost by client (top 10)</h3>
+                            <div style="position: relative; height: 320px;">
+                                <canvas id="chartLost"></canvas>
+                            </div>
+                        </div>
+                        <div class="dashboard-card">
+                            <h3 class="text-lg font-semibold mb-4">Inactive by client (top 10)</h3>
+                            <div style="position: relative; height: 320px;">
+                                <canvas id="chartInactive"></canvas>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Trend: submissions over time (last 12 months) -->
+                    <div class="dashboard-card mb-8">
+                        <h3 class="text-lg font-semibold mb-4">Submission trend (last 12 months)</h3>
+                        <div style="position: relative; height: 280px;">
+                            <canvas id="chartTrend"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+    <script src="sidebar-toggle.js"></script>
+    <script src="client_data.js" defer></script>
+</body>
+</html>

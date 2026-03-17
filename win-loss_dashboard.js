@@ -1,5 +1,11 @@
 // win-loss_dashboard.js - All logic moved from inline <script> in win-loss_dashboard.html
 
+// --- AUTH HEADER HELPER ---
+function getAuthHeaders() {
+    const token = localStorage.getItem('authToken');
+    return token ? { 'Authorization': 'Bearer ' + token } : null;
+}
+
 // --- COMPREHENSIVE FILTER LABEL COLOR FIX ---
 function forceFilterLabelColors() {
     console.log('🔧 Forcing filter label colors...');
@@ -226,6 +232,10 @@ function restoreUIState() {
         setTableFilterActive('filterOP100Btn');
     } else if (currentTableStatusFilter === 'OP90') {
         setTableFilterActive('filterOP90Btn');
+    } else if (currentTableStatusFilter === 'OP60') {
+        setTableFilterActive('filterOP60Btn');
+    } else if (currentTableStatusFilter === 'OP30') {
+        setTableFilterActive('filterOP30Btn');
     } else if (currentTableStatusFilter === 'LOST') {
         setTableFilterActive('filterLOSTBtn');
     }
@@ -559,67 +569,138 @@ function renderWinLossCharts(data) {
         return;
     }
 
-    // Process monthly data
-    const allMonthsLabels = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
     let chartLabels = [];
-    let monthIndices = []; // 0-11, stores indices of months to display
+    let winMonthlyAmount = [];
+    let winMonthlyCount = [];
+    let op90MonthlyAmount = [];
+    let op90MonthlyCount = [];
+    let lossMonthlyAmount = [];
+    let lossMonthlyCount = [];
+    let monthIndices = null; // used only for single-year view
 
-    // Build labels based on active quarters
-    console.log('📊 Chart rendering - activeQuarters:', activeQuarters);
-    if (activeQuarters['1']) { chartLabels.push('Jan','Feb','Mar'); monthIndices.push(0,1,2); }
-    if (activeQuarters['2']) { chartLabels.push('Apr','May','Jun'); monthIndices.push(3,4,5); }
-    if (activeQuarters['3']) { chartLabels.push('Jul','Aug','Sep'); monthIndices.push(6,7,8); }
-    if (activeQuarters['4']) { chartLabels.push('Oct','Nov','Dec'); monthIndices.push(9,10,11); }
-    
-    // If no quarters selected, default to all months
-    if (chartLabels.length === 0) {
-        chartLabels = allMonthsLabels;
-        monthIndices = Array.from({length: 12}, (_, i) => i);
-    }
-    
-    console.log('📊 Chart labels:', chartLabels);
-    console.log('📊 Month indices:', monthIndices);
+    // When a specific year is selected, data passed in is already filtered by year + quarters.
+    // For 'All Years', we want a continuous timeline from first to last month (year+month).
+    const buildingAllYearsTimeline = (typeof currentYearFilter !== 'undefined' && currentYearFilter === 'all');
 
-    // Initialize arrays for monthly data
-    let winMonthlyAmount = Array(12).fill(0);   // OP100
-    let winMonthlyCount = Array(12).fill(0);    // OP100
-    let op90MonthlyAmount = Array(12).fill(0);  // OP90
-    let op90MonthlyCount = Array(12).fill(0);   // OP90
-    let lossMonthlyAmount = Array(12).fill(0);
-    let lossMonthlyCount = Array(12).fill(0);
+    if (buildingAllYearsTimeline) {
+        // Map 'YYYY-MM' -> aggregated stats, respecting active quarters
+        const bucket = {};
+        data.forEach(item => {
+            try {
+                const date = robustParseDate(item.date_awarded || item.date_awarded_lost);
+                if (!date || isNaN(date)) return;
+                const year = date.getFullYear();
+                const month = date.getMonth(); // 0-11
+                const quarter = Math.floor(month / 3) + 1;
+                if (!activeQuarters[quarter]) return;
 
-    // Process data with error handling
-    data.forEach(item => {
-        try {
-            const date = robustParseDate(item.date_awarded || item.date_awarded_lost);
-            if (date && !isNaN(date)) {
-                const month = date.getMonth();
-                if (monthIndices.includes(month)) {
-                    if (item.opp_status === 'OP100') {
-                        winMonthlyAmount[month] += Number(item.final_amt) || 0;
-                        winMonthlyCount[month] += 1;
-                    } else if (item.opp_status === 'OP90') {
-                        op90MonthlyAmount[month] += Number(item.final_amt) || 0;
-                        op90MonthlyCount[month] += 1;
-                    } else if (item.opp_status === 'LOST') {
-                        lossMonthlyAmount[month] += Number(item.final_amt) || 0;
-                        lossMonthlyCount[month] += 1;
-                    }
+                const key = `${year}-${String(month + 1).padStart(2, '0')}`;
+                if (!bucket[key]) {
+                    bucket[key] = {
+                        winAmt: 0, winCnt: 0,
+                        op90Amt: 0, op90Cnt: 0,
+                        lossAmt: 0, lossCnt: 0
+                    };
                 }
+                const stats = bucket[key];
+                const amt = Number(item.final_amt) || 0;
+                if (item.opp_status === 'OP100') {
+                    stats.winAmt += amt;
+                    stats.winCnt += 1;
+                } else if (item.opp_status === 'OP90') {
+                    stats.op90Amt += amt;
+                    stats.op90Cnt += 1;
+                } else if (item.opp_status === 'LOST') {
+                    stats.lossAmt += amt;
+                    stats.lossCnt += 1;
+                }
+            } catch (error) {
+                console.warn('[WIN-LOSS] Skipping item with invalid date:', item.date_awarded || item.date_awarded_lost, error.message);
             }
-        } catch (error) {
-            // Silently skip items with invalid dates - don't break the chart
-            console.warn('[WIN-LOSS] Skipping item with invalid date:', item.date_awarded || item.date_awarded_lost, error.message);
-        }
-    });
+        });
 
-    // Filter data for selected quarters
-    const winChartAmounts = monthIndices.map(idx => winMonthlyAmount[idx]);
-    const winChartCounts = monthIndices.map(idx => winMonthlyCount[idx]);
-    const op90ChartAmounts = monthIndices.map(idx => op90MonthlyAmount[idx]);
-    const op90ChartCounts = monthIndices.map(idx => op90MonthlyCount[idx]);
-    const lossChartAmounts = monthIndices.map(idx => lossMonthlyAmount[idx]);
-    const lossChartCounts = monthIndices.map(idx => lossMonthlyCount[idx]);
+        const keys = Object.keys(bucket).sort(); // chronological by YYYY-MM
+        chartLabels = [];
+        winMonthlyAmount = [];
+        winMonthlyCount = [];
+        op90MonthlyAmount = [];
+        op90MonthlyCount = [];
+        lossMonthlyAmount = [];
+        lossMonthlyCount = [];
+
+        keys.forEach(key => {
+            const [yearStr, monthStr] = key.split('-');
+            const monthIdx = Number(monthStr) - 1;
+            const label = `${monthNames[monthIdx]} ${yearStr}`;
+            chartLabels.push(label);
+            const stats = bucket[key];
+            winMonthlyAmount.push(stats.winAmt);
+            winMonthlyCount.push(stats.winCnt);
+            op90MonthlyAmount.push(stats.op90Amt);
+            op90MonthlyCount.push(stats.op90Cnt);
+            lossMonthlyAmount.push(stats.lossAmt);
+            lossMonthlyCount.push(stats.lossCnt);
+        });
+    } else {
+        // Single-year view: keep compact 12-month layout, already filtered by year + quarters.
+        monthIndices = []; // 0-11 months to display
+
+        console.log('📊 Chart rendering - activeQuarters:', activeQuarters);
+        if (activeQuarters['1']) monthIndices.push(0,1,2);
+        if (activeQuarters['2']) monthIndices.push(3,4,5);
+        if (activeQuarters['3']) monthIndices.push(6,7,8);
+        if (activeQuarters['4']) monthIndices.push(9,10,11);
+
+        if (monthIndices.length === 0) {
+            monthIndices = Array.from({length: 12}, (_, i) => i);
+        }
+
+        chartLabels = monthIndices.map(i => monthNames[i]);
+
+        winMonthlyAmount = Array(monthIndices.length).fill(0);
+        winMonthlyCount = Array(monthIndices.length).fill(0);
+        op90MonthlyAmount = Array(monthIndices.length).fill(0);
+        op90MonthlyCount = Array(monthIndices.length).fill(0);
+        lossMonthlyAmount = Array(monthIndices.length).fill(0);
+        lossMonthlyCount = Array(monthIndices.length).fill(0);
+
+        data.forEach(item => {
+            try {
+                const date = robustParseDate(item.date_awarded || item.date_awarded_lost);
+                if (!date || isNaN(date)) return;
+                const month = date.getMonth();
+                const idx = monthIndices.indexOf(month);
+                if (idx === -1) return;
+                const amt = Number(item.final_amt) || 0;
+                if (item.opp_status === 'OP100') {
+                    winMonthlyAmount[idx] += amt;
+                    winMonthlyCount[idx] += 1;
+                } else if (item.opp_status === 'OP90') {
+                    op90MonthlyAmount[idx] += amt;
+                    op90MonthlyCount[idx] += 1;
+                } else if (item.opp_status === 'LOST') {
+                    lossMonthlyAmount[idx] += amt;
+                    lossMonthlyCount[idx] += 1;
+                }
+            } catch (error) {
+                console.warn('[WIN-LOSS] Skipping item with invalid date:', item.date_awarded || item.date_awarded_lost, error.message);
+            }
+        });
+    }
+
+    // Build chart series aligned with labels
+    const indices = buildingAllYearsTimeline
+        ? chartLabels.map((_, i) => i)
+        : monthIndices;
+
+    const winChartAmounts = indices.map(idx => winMonthlyAmount[idx]);
+    const winChartCounts = indices.map(idx => winMonthlyCount[idx]);
+    const op90ChartAmounts = indices.map(idx => op90MonthlyAmount[idx]);
+    const op90ChartCounts = indices.map(idx => op90MonthlyCount[idx]);
+    const lossChartAmounts = indices.map(idx => lossMonthlyAmount[idx]);
+    const lossChartCounts = indices.map(idx => lossMonthlyCount[idx]);
 
     // Get computed styles for chart colors
     const rootStyle = getComputedStyle(document.documentElement);
@@ -1109,6 +1190,51 @@ function renderOpportunitiesTable(opportunities) {
             return 0;
         });
     }
+    // Attach one delegated change handler for status edits
+    if (!tableBody.dataset.statusListenerAttached) {
+        tableBody.addEventListener('change', async (e) => {
+            const target = e.target;
+            if (!(target instanceof HTMLSelectElement)) return;
+            if (!target.classList.contains('opp-status-select')) return;
+            
+            const uid = target.dataset.uid;
+            const newStatus = target.value;
+            if (!uid || !newStatus) return;
+
+            try {
+                const headers = getAuthHeaders();
+                if (!headers) {
+                    alert('Not authenticated. Please log in again.');
+                    return;
+                }
+                const res = await fetch(getApiUrl(`/api/opportunities/${uid}`), {
+                    method: 'PUT',
+                    headers: { ...headers, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ opp_status: newStatus })
+                });
+                if (!res.ok) {
+                    console.error('[WIN-LOSS] Failed to update status:', res.status);
+                    alert('Failed to update status. Please try again.');
+                    return;
+                }
+                const updated = await res.json();
+                const updatedOpp = updated?.data || updated;
+                if (updatedOpp && Array.isArray(dashboardDataCache)) {
+                    const idx = dashboardDataCache.findIndex(o => o.uid === uid);
+                    if (idx >= 0) {
+                        dashboardDataCache[idx] = { ...dashboardDataCache[idx], ...updatedOpp };
+                    }
+                }
+                // Re-render dashboard so filters, charts, and table all reflect the change
+                renderDashboard(dashboardDataCache || opportunities);
+            } catch (err) {
+                console.error('[WIN-LOSS] Error updating status:', err);
+                alert('Error updating status: ' + err.message);
+            }
+        });
+        tableBody.dataset.statusListenerAttached = 'true';
+    }
+
     filtered.forEach((opp) => {
         const tr = document.createElement('tr');
         const projectName = opp['opp_name'] || opp['project_name'] || '';
@@ -1137,6 +1263,9 @@ function renderOpportunitiesTable(opportunities) {
             tr.classList.add('bg-lost');
         }
 
+        const uid = opp['uid'] || opp['id'] || '';
+        const currentStatus = (opp['opp_status'] || '').toUpperCase();
+
         tr.innerHTML = `
             <td class="project-name-cell px-3 py-2 whitespace-normal text-sm">${projectName}</td>
             <td class="px-3 py-2 whitespace-nowrap text-sm">${client}</td>
@@ -1144,6 +1273,16 @@ function renderOpportunitiesTable(opportunities) {
             <td class="px-3 py-2 whitespace-nowrap text-sm">${dateAwarded}</td>
             <td class="px-3 py-2 whitespace-nowrap text-sm text-right">${formatCurrency(finalAmtValue)}</td>
             <td class="px-3 py-2 whitespace-nowrap text-sm text-right">${formatMargin(marginValue)}</td>
+            <td class="px-3 py-2 whitespace-nowrap text-sm text-right">
+                <select class="opp-status-select text-xs border rounded px-1 py-0.5 bg-transparent" data-uid="${uid}">
+                    <option value="OP100"${currentStatus === 'OP100' ? ' selected' : ''}>OP100</option>
+                    <option value="OP90"${currentStatus === 'OP90' ? ' selected' : ''}>OP90</option>
+                    <option value="OP60"${currentStatus === 'OP60' ? ' selected' : ''}>OP60</option>
+                    <option value="OP30"${currentStatus === 'OP30' ? ' selected' : ''}>OP30</option>
+                    <option value="LOST"${currentStatus === 'LOST' ? ' selected' : ''}>LOST</option>
+                    <option value="INACTIVE"${currentStatus === 'INACTIVE' ? ' selected' : ''}>Inactive</option>
+                </select>
+            </td>
         `;
 
         tableBody.appendChild(tr);
@@ -1306,7 +1445,7 @@ function populateDropdowns(data) {
 
 // --- Table filter buttons (OP100/LOST/All) ---
 function setTableFilterActive(activeId) {
-    ['filterOP100Btn','filterOP90Btn','filterLOSTBtn'/*,'filterAllBtn'*/].forEach(id => { // Removed filterAllBtn
+    ['filterOP100Btn','filterOP90Btn','filterOP60Btn','filterOP30Btn','filterLOSTBtn'/*,'filterAllBtn'*/].forEach(id => { // Removed filterAllBtn
         const btn = document.getElementById(id);
         if (btn) btn.classList.toggle('active', id === activeId);
     });
@@ -1314,6 +1453,8 @@ function setTableFilterActive(activeId) {
 function setupTableFilterButtons() {
     const op100Btn = document.getElementById('filterOP100Btn');
     const op90Btn = document.getElementById('filterOP90Btn');
+    const op60Btn = document.getElementById('filterOP60Btn');
+    const op30Btn = document.getElementById('filterOP30Btn');
     const lostBtn = document.getElementById('filterLOSTBtn');
     // const allBtn = document.getElementById('filterAllBtn'); // Removed allBtn
 
@@ -1326,6 +1467,18 @@ function setupTableFilterButtons() {
     if (op90Btn) op90Btn.onclick = function() {
         currentTableStatusFilter = 'OP90';
         setTableFilterActive('filterOP90Btn');
+        saveSettings();
+        renderOpportunitiesTable(dashboardDataCache);
+    };
+    if (op60Btn) op60Btn.onclick = function() {
+        currentTableStatusFilter = 'OP60';
+        setTableFilterActive('filterOP60Btn');
+        saveSettings();
+        renderOpportunitiesTable(dashboardDataCache);
+    };
+    if (op30Btn) op30Btn.onclick = function() {
+        currentTableStatusFilter = 'OP30';
+        setTableFilterActive('filterOP30Btn');
         saveSettings();
         renderOpportunitiesTable(dashboardDataCache);
     };

@@ -28,6 +28,7 @@ class SharedNavigation {
             'forecastr_dashboard.html': 'forecastr_dashboard',
             'proposal_workbench.html': 'proposal_workbench',
             'win-loss_dashboard.html': 'win-loss_dashboard',
+            'client_data.html': 'client_data',
             'user_management.html': 'user_management',
             'client_management.html': 'client_management',
             'csv_formatter.html': 'csv_formatter',
@@ -414,6 +415,80 @@ class SharedNavigation {
         // Update navigation visibility based on user roles
         this.updateNavigationVisibility();
         
+        // Initialize OP100 email maintenance toggle for superadmin
+        this.initializeOp100EmailToggle();
+        
+    }
+    
+    async initializeOp100EmailToggle() {
+        try {
+            const container = document.getElementById('op100EmailToggleContainer');
+            const btn = document.getElementById('op100EmailToggle');
+            const icon = document.getElementById('op100EmailIcon');
+            const label = document.getElementById('op100EmailStatus');
+            if (!container || !btn || !icon || !label) return;
+            
+            const name = (this.currentUserInfo?.name || '').toUpperCase();
+            const accountType = this.currentUserInfo?.accountType || this.currentUserInfo?.account_type;
+            const isSuperAdmin = name === 'TJC' || accountType === 'Admin' || accountType === 'System Admin';
+            if (!isSuperAdmin) {
+                container.style.display = 'none';
+                return;
+            }
+            
+            container.style.display = '';
+            
+            const headers = this.getAuthHeaders();
+            if (!headers) return;
+            
+            const refresh = async () => {
+                try {
+                    const res = await fetch(getApiUrl('/api/op100-email/maintenance'), { headers });
+                    if (!res.ok) return;
+                    const data = await res.json();
+                    const enabled = !!data.enabled;
+                    if (enabled) {
+                        icon.textContent = 'email';
+                        label.textContent = 'OP100 Emails: OFF';
+                        btn.classList.add('disconnected');
+                        btn.classList.remove('connected');
+                    } else {
+                        icon.textContent = 'mark_email_read';
+                        label.textContent = 'OP100 Emails: ON';
+                        btn.classList.add('connected');
+                        btn.classList.remove('disconnected');
+                    }
+                    btn.dataset.enabled = String(enabled);
+                } catch (e) {
+                    console.warn('[SHARED-NAV] Failed to load OP100 email maintenance status:', e.message);
+                }
+            };
+            
+            if (!btn.hasAttribute('data-listener-attached')) {
+                btn.addEventListener('click', async () => {
+                    try {
+                        const current = btn.dataset.enabled === 'true';
+                        const res = await fetch(getApiUrl('/api/op100-email/maintenance'), {
+                            method: 'POST',
+                            headers: { ...headers, 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ enabled: !current })
+                        });
+                        if (!res.ok) {
+                            console.warn('[SHARED-NAV] Failed to toggle OP100 maintenance:', res.status);
+                            return;
+                        }
+                        await refresh();
+                    } catch (e) {
+                        console.warn('[SHARED-NAV] Error toggling OP100 maintenance:', e.message);
+                    }
+                });
+                btn.setAttribute('data-listener-attached', 'true');
+            }
+            
+            await refresh();
+        } catch (e) {
+            console.warn('[SHARED-NAV] Error initializing OP100 email toggle:', e.message);
+        }
     }
     
     async initializeOnlineUsersTracking() {
@@ -619,6 +694,7 @@ class SharedNavigation {
             '/win-loss_dashboard.html': 'Win-Loss',
             '/forecastr_dashboard.html': 'Forecasts',
             '/executive_dashboard.html': 'Executive',
+            '/client_data.html': 'Client Data',
             '/proposal_workbench.html': 'Proposals',
             '/user_management.html': 'Users',
             '/csv_formatter.html': 'CSV Formatter',

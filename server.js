@@ -17,6 +17,7 @@ const rateLimit = require('express-rate-limit');
 const cors = require('cors');
 
 const app = express();
+let op100MaintenanceMode = false; // runtime toggle for OP100 email sending
 const port = process.env.PORT || 3000; // Use environment port for Render
 
 // --- Helpers ---
@@ -1577,6 +1578,18 @@ app.get('/api/health', (req, res) => {
     service: 'CMRP Opps Management Backend',
     version: '1.0.0'
   });
+});
+
+// --- OP100 Email Maintenance Mode (Admin only) ---
+app.get('/api/op100-email/maintenance', authenticateToken, requireAdmin, (req, res) => {
+  res.json({ enabled: !!op100MaintenanceMode });
+});
+
+app.post('/api/op100-email/maintenance', authenticateToken, requireAdmin, (req, res) => {
+  const enabled = !!req.body?.enabled;
+  op100MaintenanceMode = enabled;
+  console.log('[OP100-MAINTENANCE] Set maintenance mode to', enabled, 'by', req.user?.email);
+  res.json({ success: true, enabled });
 });
 
 // --- User Preferences Endpoint ---
@@ -3607,7 +3620,11 @@ app.put('/api/opportunities/:uid', authenticateToken,
       try {
         const oldOppSt = (currentOpp.opp_status || '').toUpperCase();
         const newOppSt = (updatedOpp.opp_status || '').toUpperCase();
-        if (oldOppSt !== 'OP100' && newOppSt === 'OP100') {
+        const projectNameUpper = (updatedOpp.project_name || '').toUpperCase();
+        const skipOp100Email =
+          projectNameUpper === 'ADI B1 BMS ANNUAL PM SERVICE';
+
+        if (oldOppSt !== 'OP100' && newOppSt === 'OP100' && !skipOp100Email) {
           await googleTasksService.sendOP100Email({
             projectCode: updatedOpp.project_code || null,
             projectName: updatedOpp.project_name || 'Unknown Project',
