@@ -1046,6 +1046,23 @@ if (process.env.NODE_ENV === 'production' || process.env.ENABLE_WEEKLY_DIGEST ==
     console.log('[SERVER] Weekly digest disabled (development mode). Set ENABLE_WEEKLY_DIGEST=true to enable.');
 }
 
+// OP100 budget status reply poller: check every 5 minutes for "Product Budget Status" replies
+if (process.env.NODE_ENV === 'production' || process.env.ENABLE_BUDGET_POLLER === 'true') {
+    cron.schedule('*/5 * * * *', async () => {
+        try {
+            const result = await googleTasksService.checkOP100BudgetRequests();
+            if (result.processed > 0) {
+                console.log(`[BUDGET-POLLER] Processed ${result.processed} budget status request(s)`);
+            }
+        } catch (e) {
+            console.error('[BUDGET-POLLER] Error:', e.message);
+        }
+    }, { scheduled: true, timezone: 'Asia/Manila' });
+    console.log('[SERVER] OP100 budget status poller scheduled (every 5 minutes)');
+} else {
+    console.log('[SERVER] OP100 budget status poller disabled. Set ENABLE_BUDGET_POLLER=true to enable.');
+}
+
 // Start automated snapshots in production or when explicitly enabled
 if (process.env.NODE_ENV === 'production' || process.env.ENABLE_AUTO_SNAPSHOTS === 'true') {
     console.log('[SERVER] Starting snapshot automation service (1:30 PM Monday schedule)...');

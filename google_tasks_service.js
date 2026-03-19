@@ -797,6 +797,288 @@ class GoogleTasksService {
       return { success: false, error: error.message };
     }
   }
+  /**
+   * Poll OP100 email threads for budget status requests and auto-reply.
+   * Looks for replies containing "Product Budget Status" in OP100 threads,
+   * calculates remaining budget from PO List Google Sheet, and replies.
+   */
+  async checkOP100BudgetRequests() {
+    try {
+      // Find a user with valid Gmail tokens (prefer Admin/System Admin)
+      const tokenUsers = await db.query(
+        `SELECT DISTINCT u.id, u.name, u.account_type, uct.google_email
+         FROM users u
+         INNER JOIN user_calendar_tokens uct ON u.id = uct.user_id
+         WHERE uct.google_email IS NOT NULL
+           AND u.account_type IN ('Admin', 'System Admin')
+         ORDER BY u.name ASC`
+      );
+
+      if (tokenUsers.rows.length === 0) {
+        console.log('[BUDGET-STATUS] No admin with Google tokens found');
+        return { success: false, reason: 'no_admin_tokens' };
+      }
+
+      const adminUser = tokenUsers.rows[0];
+      let tokens;
+      try {
+        tokens = await this.calendarOAuthService.ensureValidTokens(adminUser.id);
+      } catch (e) {
+        console.log(`[BUDGET-STATUS] Failed to get tokens for ${adminUser.name}: ${e.message}`);
+        return { success: false, reason: 'token_error' };
+      }
+
+      const oauth2Client = new google.auth.OAuth2(
+        process.env.GOOGLE_OAUTH_CLIENT_ID,
+        process.env.GOOGLE_OAUTH_CLIENT_SECRET,
+        process.env.GOOGLE_OAUTH_REDIRECT_URI || 'http://localhost:3000/auth/google/calendar/callback'
+      );
+      oauth2Client.setCredentials({
+        access_token: tokens.access_token,
+        refresh_token: tokens.refresh_token
+      });
+
+      const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+
+      // Search for unread replies in OP100 threads containing budget keywords
+      const searchRes = await gmail.users.messages.list({
+        userId: 'me',
+        q: 'subject:"[CMRP OppX] Project Awarded" is:unread "Product Budget Status"',
+        maxResults: 10
+      });
+
+      const messages = searchRes.data.messages || [];
+      if (messages.length === 0) {
+        return { success: true, processed: 0 };
+      }
+
+      console.log(`[BUDGET-STATUS] Found ${messages.length} unread budget status request(s)`);
+      let processed = 0;
+
+      for (const msg of messages) {
+        try {
+          const fullMsg = await gmail.users.messages.get({
+            userId: 'me',
+            id: msg.id,
+            format: 'full'
+          });
+
+          const headers = fullMsg.data.payload.headers || [];
+          const subject = headers.find(h => h.name.toLowerCase() === 'subject')?.value || '';
+          const threadId = fullMsg.data.threadId;
+
+          // Verify body contains "product budget status" (case-insensitive)
+          const bodyData = this._extractMessageBody(fullMsg.data.payload);
+          if (!bodyData || !bodyData.toLowerCase().includes('product budget status')) {
+            await this._markAsRead(gmail, msg.id);
+            continue;
+          }
+
+          // Extract project code from subject: "[CMRP OppX] Project Awarded : CMRP26010027 ProjectName"
+          const projMatch = subject.match(/Project Awarded\s*:\s*(CMRP\d+)/i);
+          if (!projMatch) {
+            console.log(`[BUDGET-STATUS] Could not extract project code from: ${subject}`);
+            await this._markAsRead(gmail, msg.id);
+            continue;
+          }
+
+          const projectCode = projMatch[1];
+          console.log(`[BUDGET-STATUS] Processing budget request for ${projectCode}`);
+
+          // Get products budget from DB
+          const oppRow = await db.query(
+            `SELECT project_name, account_mgr, budget_products, budget_services, budget_gen_req, op100_thread_id
+             FROM opps_monitoring WHERE project_code = ? LIMIT 1`,
+            [projectCode]
+          );
+
+          if (oppRow.rows.length === 0) {
+            console.log(`[BUDGET-STATUS] Project ${projectCode} not found in DB`);
+            await this._markAsRead(gmail, msg.id);
+            continue;
+          }
+
+          const opp = oppRow.rows[0];
+          const budgetProducts = parseFloat(opp.budget_products) || 0;
+
+          // Query PO List Google Sheet for total products expense
+          const poExpense = await this._getProductsExpenseFromSheet(projectCode);
+
+          const remaining = budgetProducts - poExpense;
+          const formatCurrency = (v) => '₱' + Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+          const replyBody = [
+            `Product Budget Status for ${projectCode} (${opp.project_name || 'N/A'})`,
+            ``,
+            `--- Product Budget Summary ---`,
+            `Products Budget:    ${budgetProducts > 0 ? formatCurrency(budgetProducts) : 'N/A'}`,
+            `Total PO Expense:   ${formatCurrency(poExpense)}`,
+            `Remaining Budget:   ${remaining >= 0 ? formatCurrency(remaining) : '-' + formatCurrency(remaining) + ' (OVER BUDGET)'}`,
+            `-----------------------------`,
+            ``,
+            `— CMRP OppX`,
+            ``,
+            `This is a System-generated email. Please do not reply.`
+          ].join('\n');
+
+          // Build reply-all recipient list: all OP100 recipients + AM-conditional
+          const replyAM = opp.account_mgr || '';
+          const amConditional = GoogleTasksService.OP100_AM_RECIPIENTS[replyAM] || [];
+          const allReplyRecipients = [...GoogleTasksService.OP100_REQUIRED_RECIPIENTS, ...amConditional];
+          // Add the person who requested (in case they're not in the list)
+          const requesterEmail = headers.find(h => h.name.toLowerCase() === 'from')?.value || '';
+          if (requesterEmail) allReplyRecipients.push(requesterEmail);
+          const replyTo = [...new Set(allReplyRecipients.map(e => e.toLowerCase()))].join(', ');
+
+          const replyHeaders = [
+            `To: ${replyTo}`,
+            `Subject: Re: ${subject.replace(/^Re:\s*/i, '')}`,
+            `Content-Type: text/plain; charset="UTF-8"`,
+            `In-Reply-To: ${headers.find(h => h.name.toLowerCase() === 'message-id')?.value || ''}`,
+            `References: ${headers.find(h => h.name.toLowerCase() === 'message-id')?.value || ''}`,
+            ``,
+            replyBody
+          ].join('\n');
+
+          const encodedReply = Buffer.from(replyHeaders)
+            .toString('base64')
+            .replace(/\+/g, '-')
+            .replace(/\//g, '_')
+            .replace(/=+$/, '');
+
+          await gmail.users.messages.send({
+            userId: 'me',
+            requestBody: {
+              raw: encodedReply,
+              threadId: threadId
+            }
+          });
+
+          // Mark original request as read
+          await this._markAsRead(gmail, msg.id);
+
+          console.log(`[BUDGET-STATUS] Replied to budget request for ${projectCode} (budget: ${formatCurrency(budgetProducts)}, expense: ${formatCurrency(poExpense)}, remaining: ${formatCurrency(remaining)})`);
+          processed++;
+
+        } catch (msgErr) {
+          console.error(`[BUDGET-STATUS] Error processing message ${msg.id}:`, msgErr.message);
+        }
+      }
+
+      return { success: true, processed };
+
+    } catch (error) {
+      console.error(`[BUDGET-STATUS] Poll failed:`, error.message);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Extract plain text body from Gmail message payload.
+   */
+  _extractMessageBody(payload) {
+    if (payload.body && payload.body.data) {
+      return Buffer.from(payload.body.data, 'base64').toString('utf-8');
+    }
+    if (payload.parts) {
+      for (const part of payload.parts) {
+        if (part.mimeType === 'text/plain' && part.body && part.body.data) {
+          return Buffer.from(part.body.data, 'base64').toString('utf-8');
+        }
+        if (part.parts) {
+          const nested = this._extractMessageBody(part);
+          if (nested) return nested;
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Mark a Gmail message as read by removing UNREAD label.
+   */
+  async _markAsRead(gmail, messageId) {
+    try {
+      await gmail.users.messages.modify({
+        userId: 'me',
+        id: messageId,
+        requestBody: { removeLabelIds: ['UNREAD'] }
+      });
+    } catch (e) {
+      console.log(`[BUDGET-STATUS] Failed to mark ${messageId} as read: ${e.message}`);
+    }
+  }
+
+  /**
+   * Query the PO List Google Sheet for total PRODUCTS expense for a project.
+   * Columns: D=PO Number, F=Project Number, J=Amount, K=PO-Classification
+   */
+  async _getProductsExpenseFromSheet(projectCode) {
+    try {
+      const spreadsheetId = process.env.PO_LIST_SPREADSHEET_ID;
+      if (!spreadsheetId) {
+        console.log('[BUDGET-STATUS] PO_LIST_SPREADSHEET_ID not configured');
+        return 0;
+      }
+
+      // Use service account for Sheets API
+      const keyRaw = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
+      let key;
+      try { key = JSON.parse(keyRaw); } catch (_) {
+        try { key = JSON.parse(Buffer.from(keyRaw, 'base64').toString()); } catch (_2) {
+          const fixed = keyRaw.replace(/\\n/g, '\n');
+          key = JSON.parse(fixed);
+        }
+      }
+
+      const auth = new google.auth.GoogleAuth({
+        credentials: key,
+        scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly']
+      });
+
+      const sheets = google.sheets({ version: 'v4', auth });
+      const res = await sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: 'PO List!A1:Z5000',
+      });
+
+      const rows = res.data.values || [];
+      if (rows.length < 2) return 0;
+
+      // Header row to find column indices
+      const header = rows[0].map(h => (h || '').toLowerCase().trim());
+      const projNumIdx = header.findIndex(h => h.includes('project number'));
+      const amountIdx = header.findIndex(h => h.includes('amount'));
+      const classIdx = header.findIndex(h => h.includes('classification'));
+
+      if (projNumIdx === -1 || amountIdx === -1 || classIdx === -1) {
+        console.log(`[BUDGET-STATUS] Could not find required columns in PO List. Headers: ${header.join(', ')}`);
+        return 0;
+      }
+
+      let total = 0;
+      for (let i = 1; i < rows.length; i++) {
+        const row = rows[i];
+        const projNum = (row[projNumIdx] || '').trim();
+        const classification = (row[classIdx] || '').trim().toUpperCase();
+        const amountStr = (row[amountIdx] || '').toString().replace(/[₱$,\s]/g, '');
+
+        if (projNum === projectCode && classification === 'PRODUCTS') {
+          const amt = parseFloat(amountStr);
+          if (!isNaN(amt) && amt > 0) {
+            total += amt;
+          }
+        }
+      }
+
+      console.log(`[BUDGET-STATUS] PO List total PRODUCTS for ${projectCode}: ₱${total.toLocaleString('en-US', { minimumFractionDigits: 2 })}`);
+      return total;
+
+    } catch (error) {
+      console.error(`[BUDGET-STATUS] Sheet query failed:`, error.message);
+      return 0;
+    }
+  }
 }
 
 module.exports = GoogleTasksService;
