@@ -854,7 +854,7 @@ class GoogleTasksService {
       // Search for replies in OP100 threads containing budget keywords (last 24h)
       const searchRes = await gmail.users.messages.list({
         userId: 'me',
-        q: 'subject:"[CMRP OppX] Project Awarded" "Product Budget Status" newer_than:1d',
+        q: 'subject:"[CMRP OppX] Project Awarded" "budget status" newer_than:1d',
         maxResults: 10
       });
 
@@ -894,7 +894,7 @@ class GoogleTasksService {
 
           // Verify body contains "product budget status" (case-insensitive)
           const bodyData = this._extractMessageBody(fullMsg.data.payload);
-          if (!bodyData || !bodyData.toLowerCase().includes('product budget status')) {
+          if (!bodyData || !bodyData.toLowerCase().includes('budget status')) {
             await db.query(`INSERT OR IGNORE INTO budget_replies_processed (message_id, project_code) VALUES (?, ?)`, [msg.id, 'skip']);
             continue;
           }
