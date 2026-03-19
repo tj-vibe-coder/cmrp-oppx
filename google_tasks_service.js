@@ -614,19 +614,23 @@ class GoogleTasksService {
     'rojel.rivera@cmrpautomation.com',
     'procurement@cmrpautomation.com',
     'jayson.bornales@cmrpautomation.com',
-    'crisostomo.diaz@cmrpautomation.com',
     'dianne.rael@cmrpautomation.com',
     'marjori.cortez@cmrpautomation.com',
-    'jun@cmr.ph',
-    'Jun.ortiz@cmrpautomation.com',
+    'logistics@cmrpautomation.com',
   ];
+
+  // Conditional recipients based on Account Manager
+  static OP100_AM_RECIPIENTS = {
+    'JMO': ['jun@cmr.ph', 'Jun.ortiz@cmrpautomation.com'],
+    'CBD': ['crisostomo.diaz@cmrpautomation.com'],
+  };
 
   /**
    * Send email notification when a project is awarded (OP100).
    * Always sends to the hardcoded OP100_REQUIRED_RECIPIENTS list,
    * plus any additional admins/account managers with Google connected.
    */
-  async sendOP100Email({ projectCode, projectName, client, accountMgr, pic, bom, finalAmt, margin, driveFolderUrl, changedByName }) {
+  async sendOP100Email({ projectCode, projectName, client, accountMgr, pic, bom, finalAmt, margin, driveFolderUrl, changedByName, poNumber, poDate, budgetProducts, budgetServices, budgetGenReq }) {
     try {
       if (global.op100MaintenanceMode) {
         console.log('[OP100-EMAIL] Skipped (runtime maintenance mode ON)');
@@ -668,10 +672,11 @@ class GoogleTasksService {
         return { success: false, error: 'No valid sender tokens' };
       }
 
-      // Build de-duped recipient list: required list + any DB-discovered google_emails
+      // Build de-duped recipient list: required list + AM-conditional + env + DB emails
+      const amConditional = GoogleTasksService.OP100_AM_RECIPIENTS[accountMgr] || [];
       const extraEnv = (process.env.OP100_NOTIFICATION_EMAILS || '').split(',').map(e => e.trim()).filter(Boolean);
       const dbEmails = tokenUsers.rows.map(r => r.google_email).filter(Boolean);
-      const allEmails = [...GoogleTasksService.OP100_REQUIRED_RECIPIENTS, ...extraEnv, ...dbEmails];
+      const allEmails = [...GoogleTasksService.OP100_REQUIRED_RECIPIENTS, ...amConditional, ...extraEnv, ...dbEmails];
       const recipientEmails = [...new Set(allEmails.map(e => e.toLowerCase()))];
 
       const amt = parseFloat(String(finalAmt || '0').replace(/[₱$,]/g, ''));
@@ -679,14 +684,30 @@ class GoogleTasksService {
 
       const subjectParts = ['[CMRP OppX] Project Awarded :', projectCode || '', projectName];
       const subject = subjectParts.filter(Boolean).join(' ').trim();
+      // Format budget amounts
+      const parseBudget = (v) => { const n = parseFloat(String(v || '0').replace(/[₱$,]/g, '')); return !isNaN(n) && n > 0 ? n : null; };
+      const bProducts = parseBudget(budgetProducts);
+      const bServices = parseBudget(budgetServices);
+      const bGenReq = parseBudget(budgetGenReq);
+      const hasBudget = bProducts || bServices || bGenReq;
+
       const body = [
         `A project has been awarded (OP100)!`,
         ``,
         projectCode ? `Project #: ${projectCode}` : null,
         `Project Name: ${projectName}`,
         `AM: ${accountMgr || 'N/A'}`,
+        poNumber ? `PO Number: ${poNumber}` : null,
+        poDate ? `PO Date: ${poDate}` : null,
         `Amount: ${!isNaN(amt) && amt > 0 ? formatCurrency(amt) : 'N/A'}`,
         margin ? `Margin: ${margin}%` : null,
+        hasBudget ? `` : null,
+        hasBudget ? `--- Budget Allocation ---` : null,
+        bProducts ? `Products: ${formatCurrency(bProducts)}` : null,
+        bServices ? `Services: ${formatCurrency(bServices)}` : null,
+        bGenReq ? `Gen-Req: ${formatCurrency(bGenReq)}` : null,
+        hasBudget ? `-------------------------` : null,
+        driveFolderUrl ? `` : null,
         driveFolderUrl ? `Google Drive Link: ${driveFolderUrl}` : null,
         ``,
         `Updated by: ${changedByName}`,
@@ -694,7 +715,7 @@ class GoogleTasksService {
         `— CMRP OppX`,
         ``,
         `This is a System-generated email. Please do not reply.`
-      ].filter(Boolean).join('\n');
+      ].filter(v => v !== null).join('\n');
 
       const rawMessage = [
         `To: ${recipientEmails.join(', ')}`,

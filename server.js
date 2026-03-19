@@ -258,7 +258,29 @@ let pool;
     } catch (clientsErr) {
       console.warn('⚠️ [DB] Could not ensure clients table (non-fatal):', clientsErr.message);
     }
-    
+
+    // Auto-migrate: add PO and budget allocation columns if missing
+    try {
+      const colCheck = await db.query(`PRAGMA table_info(opps_monitoring)`);
+      const existingCols = colCheck.rows.map(c => c.name);
+      const newCols = [
+        { name: 'po_number', type: 'TEXT' },
+        { name: 'po_date', type: 'TEXT' },
+        { name: 'budget_products', type: 'REAL' },
+        { name: 'budget_services', type: 'REAL' },
+        { name: 'budget_gen_req', type: 'REAL' }
+      ];
+      for (const col of newCols) {
+        if (!existingCols.includes(col.name)) {
+          await db.query(`ALTER TABLE opps_monitoring ADD COLUMN ${col.name} ${col.type}`);
+          console.log(`[MIGRATION] Added column ${col.name} (${col.type}) to opps_monitoring`);
+        }
+      }
+      console.log('✅ [DB] PO/budget columns ensured');
+    } catch (migErr) {
+      console.error('[MIGRATION] Auto-migrate PO/budget columns error:', migErr.message);
+    }
+
     // Test write capability
     try {
       const dbType = db.getDBType();
@@ -2010,7 +2032,8 @@ app.get('/api/opportunities', authenticateToken, async (req, res) => {
              opp_status, date_awarded_lost, lost_rca, l_particulars, a, c, r, u,
              remarks_comments, forecast_date, google_drive_folder_id,
              google_drive_folder_url, google_drive_folder_name, drive_folder_created_at,
-             drive_folder_created_by
+             drive_folder_created_by,
+             po_number, po_date, budget_products, budget_services, budget_gen_req
       FROM opps_monitoring
     `);
     console.log(`[DEBUG] Fetched ${result.rows?.length || 0} opportunities from database`);
@@ -3239,6 +3262,27 @@ app.put('/api/opportunities/:uid', authenticateToken,
       const cleanedValue = typeof value === 'string' ? value.replace(/[₱$,]/g, '').trim() : value;
       return !isNaN(parseFloat(cleanedValue)) && isFinite(cleanedValue);
     }),
+    body('budget_products').optional().custom(value => {
+      if (!value) return true;
+      const cleanedValue = typeof value === 'string' ? value.replace(/[₱$,]/g, '').trim() : value;
+      return !isNaN(parseFloat(cleanedValue)) && isFinite(cleanedValue);
+    }),
+    body('budget_services').optional().custom(value => {
+      if (!value) return true;
+      const cleanedValue = typeof value === 'string' ? value.replace(/[₱$,]/g, '').trim() : value;
+      return !isNaN(parseFloat(cleanedValue)) && isFinite(cleanedValue);
+    }),
+    body('budget_gen_req').optional().custom(value => {
+      if (!value) return true;
+      const cleanedValue = typeof value === 'string' ? value.replace(/[₱$,]/g, '').trim() : value;
+      return !isNaN(parseFloat(cleanedValue)) && isFinite(cleanedValue);
+    }),
+    body('po_number').optional().escape(),
+    body('po_date').optional().custom((value) => {
+      if (!value || value === '' || value === null) return true;
+      const parsed = robustParseDate(value);
+      return parsed !== null || value === null || value === '';
+    }).withMessage('po_date must be a valid date or empty'),
     body('date_awarded_lost').optional().custom((value) => {
       // Allow null, empty string, or valid date formats
       if (!value || value === '' || value === null) return true;
@@ -3274,8 +3318,8 @@ app.put('/api/opportunities/:uid', authenticateToken,
         if (typeof v === 'string' && v.trim() === '') {
             return [k, null];
         }
-        // Normalize date_awarded_lost to ISO format if it's a valid date
-        if (k === 'date_awarded_lost' && v) {
+        // Normalize date fields to ISO format if they're valid dates
+        if ((k === 'date_awarded_lost' || k === 'po_date') && v) {
             const parsedDate = robustParseDate(v);
             if (parsedDate) {
                 // Convert to YYYY-MM-DD format
@@ -3284,10 +3328,15 @@ app.put('/api/opportunities/:uid', authenticateToken,
                 const day = String(parsedDate.getUTCDate()).padStart(2, '0');
                 return [k, `${year}-${month}-${day}`];
             } else {
-                // Invalid date - set to null instead of saving invalid value
-                console.warn(`[PUT /api/opportunities/${uid}] Invalid date_awarded_lost value "${v}", setting to null`);
+                console.warn(`[PUT /api/opportunities/${uid}] Invalid ${k} value "${v}", setting to null`);
                 return [k, null];
             }
+        }
+        // Normalize budget/amount fields to numeric values
+        if ((k === 'budget_products' || k === 'budget_services' || k === 'budget_gen_req') && v) {
+            const cleaned = typeof v === 'string' ? v.replace(/[₱$,]/g, '').trim() : v;
+            const num = parseFloat(cleaned);
+            return [k, !isNaN(num) ? num : null];
         }
         return [k, v];
     }));
@@ -3635,7 +3684,12 @@ app.put('/api/opportunities/:uid', authenticateToken,
             finalAmt: updatedOpp.final_amt || null,
             margin: updatedOpp.margin || null,
             driveFolderUrl: updatedOpp.google_drive_folder_url || null,
-            changedByName: req.user?.name || req.user?.email || 'System'
+            changedByName: req.user?.name || req.user?.email || 'System',
+            poNumber: updatedOpp.po_number || null,
+            poDate: updatedOpp.po_date || null,
+            budgetProducts: updatedOpp.budget_products || null,
+            budgetServices: updatedOpp.budget_services || null,
+            budgetGenReq: updatedOpp.budget_gen_req || null
           });
         }
       } catch (op100Error) {
@@ -3730,12 +3784,13 @@ app.get('/api/awarded-projects', authenticateToken, async (req, res) => {
         if (onlyUnsynced && hasSyncColumn) {
             // Get only projects that haven't been synced yet (synced_to_other_app = 0 or NULL)
             query = `
-                SELECT 
+                SELECT
                     uid, project_code, project_name, client, account_mgr, pic, bom,
                     final_amt, margin, date_awarded_lost, opp_status, status,
                     submitted_date, forecast_date, google_drive_folder_id,
                     google_drive_folder_url, google_drive_folder_name,
-                    encoded_date, rev, remarks_comments
+                    encoded_date, rev, remarks_comments,
+                    po_number, po_date, budget_products, budget_services, budget_gen_req
                 FROM opps_monitoring
                 WHERE UPPER(opp_status) = 'OP100'
                   AND (synced_to_other_app IS NULL OR synced_to_other_app = 0)
@@ -3747,12 +3802,13 @@ app.get('/api/awarded-projects', authenticateToken, async (req, res) => {
             // Get all awarded projects (or all if sync column doesn't exist)
             const syncColumnSelect = hasSyncColumn ? ', synced_to_other_app' : '';
             query = `
-                SELECT 
+                SELECT
                     uid, project_code, project_name, client, account_mgr, pic, bom,
                     final_amt, margin, date_awarded_lost, opp_status, status,
                     submitted_date, forecast_date, google_drive_folder_id,
                     google_drive_folder_url, google_drive_folder_name,
-                    encoded_date, rev, remarks_comments${syncColumnSelect}
+                    encoded_date, rev, remarks_comments,
+                    po_number, po_date, budget_products, budget_services, budget_gen_req${syncColumnSelect}
                 FROM opps_monitoring
                 WHERE UPPER(opp_status) = 'OP100'
                 ORDER BY date_awarded_lost DESC, project_code DESC
@@ -5162,7 +5218,7 @@ const server = app.listen(port, () => {
   console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`📦 Node ${process.version}, OpenSSL ${process.versions.openssl}`);
   console.log(`📁 Serving static files from: ${__dirname}`);
-  
+
   console.log(`🩺 Health check: http://localhost:${port}/api/health`);
   console.log(`🔒 CORS test: http://localhost:${port}/api/cors-test`);
   console.log(`📊 Win/Loss Dashboard available at http://localhost:${port}/win-loss_dashboard.html`);

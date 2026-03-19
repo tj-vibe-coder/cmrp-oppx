@@ -234,14 +234,17 @@ router.post('/sync-from-drive/:proposalUid', async (req, res) => {
         
         // Update proposal in database
         const updateResult = await updateProposalFromExcel(
-            req.db, 
-            proposalUid, 
+            req.db,
+            proposalUid,
             {
                 revisionNumber: syncResult.excelFile.revisionNumber,
                 margin: excelData.margin,
                 finalAmount: excelData.finalAmount,
                 submittedDate: syncResult.excelFile.modifiedTime,
-                excelFileName: syncResult.excelFile.name
+                excelFileName: syncResult.excelFile.name,
+                budgetProducts: excelData.budgetProducts,
+                budgetServices: excelData.budgetServices,
+                budgetGenReq: excelData.budgetGenReq
             },
             userName
         );
@@ -272,7 +275,10 @@ router.post('/sync-from-drive/:proposalUid', async (req, res) => {
                 margin: excelData.margin,
                 finalAmount: excelData.finalAmount,
                 submittedDate: submittedDate,
-                excelFileName: syncResult.excelFile.name
+                excelFileName: syncResult.excelFile.name,
+                budgetProducts: excelData.budgetProducts,
+                budgetServices: excelData.budgetServices,
+                budgetGenReq: excelData.budgetGenReq
             },
             calcsheetFolder: syncResult.calcsheetFolder ? {
                 id: syncResult.calcsheetFolder.id,
@@ -500,7 +506,7 @@ router.put('/proposals/:id/fields', async (req, res) => {
             UPDATE opps_monitoring
             SET ${updateFields.join(', ')}
             WHERE uid = ?
-            RETURNING uid, project_code, project_name, client, status, final_amt, account_mgr, remarks_comments, pic, bom, rev, margin, opp_status, submitted_date, google_drive_folder_url
+            RETURNING uid, project_code, project_name, client, status, final_amt, account_mgr, remarks_comments, pic, bom, rev, margin, opp_status, submitted_date, google_drive_folder_url, po_number, po_date, budget_products, budget_services, budget_gen_req
         `;
 
         const result = await db.query(query, values);
@@ -548,7 +554,12 @@ router.put('/proposals/:id/fields', async (req, res) => {
               finalAmt: updatedRow.final_amt || null,
               margin: updatedRow.margin || null,
               driveFolderUrl: updatedRow.google_drive_folder_url || null,
-              changedByName: req.user?.name || req.user?.email || 'System'
+              changedByName: req.user?.name || req.user?.email || 'System',
+              poNumber: updatedRow.po_number || null,
+              poDate: updatedRow.po_date || null,
+              budgetProducts: updatedRow.budget_products || null,
+              budgetServices: updatedRow.budget_services || null,
+              budgetGenReq: updatedRow.budget_gen_req || null
             });
           } catch (op100Err) {
             console.error('[OP100-EMAIL] Error sending from proposal workbench:', op100Err.message);
@@ -1154,17 +1165,48 @@ async function parseExcelFileWithPopulate(buffer, password) {
             console.log('⚠️ Error accessing General Info sheet with xlsx-populate:', error.message);
         }
         
+        // Extract budget allocation from Summary sheet (rows 13, 19-21, 22-24)
+        let budgetProducts = null, budgetServices = null, budgetGenReq = null;
+        try {
+            // Products = C33
+            const productsVal = summarySheet.cell('C33').value();
+            budgetProducts = productsVal ? parseNumericValue(productsVal) : null;
+
+            // Gen-Req = SUM(C42:C46) — calculated first so Services can subtract it
+            const grVals = ['C42', 'C43', 'C44', 'C45', 'C46'].map(c => parseNumericValue(summarySheet.cell(c).value()) || 0);
+            const grTotal = grVals.reduce((a, b) => a + b, 0);
+            budgetGenReq = grTotal > 0 ? grTotal : null;
+
+            // Services = C34 - Gen-Req
+            const svcRaw = parseNumericValue(summarySheet.cell('C34').value());
+            if (svcRaw !== null) {
+                budgetServices = svcRaw - (grTotal || 0);
+                if (budgetServices <= 0) budgetServices = null;
+            }
+
+            if (budgetProducts !== null) budgetProducts = parseFloat(budgetProducts.toFixed(2));
+            if (budgetServices !== null) budgetServices = parseFloat(budgetServices.toFixed(2));
+            if (budgetGenReq !== null) budgetGenReq = parseFloat(budgetGenReq.toFixed(2));
+
+            console.log(`📊 Budget Allocation - Products: ${budgetProducts}, Services: ${budgetServices}, Gen-Req: ${budgetGenReq}`);
+        } catch (err) {
+            console.log(`⚠️ Error extracting budget from Summary sheet (xlsx-populate):`, err.message);
+        }
+
         console.log(`✅ Successfully parsed Excel file with xlsx-populate - Margin: ${margin}%, Final Amount: ${formattedFinalAmount}`);
-        
+
         return {
             success: true,
             margin: margin,
             finalAmount: formattedFinalAmount,
             clientName: clientName,
             pic: pic,
-            accountManager: accountManager
+            accountManager: accountManager,
+            budgetProducts: budgetProducts,
+            budgetServices: budgetServices,
+            budgetGenReq: budgetGenReq
         };
-        
+
     } catch (error) {
         console.error('❌ xlsx-populate failed to parse Excel file:', error.message);
         return {
@@ -1243,17 +1285,52 @@ async function parseExcelFileWithExcelJS(buffer, password) {
             console.log('⚠️ Error accessing General Info sheet with ExcelJS:', error.message);
         }
         
+        // Extract budget allocation from Summary sheet (rows 13, 19-21, 22-24)
+        let budgetProducts = null, budgetServices = null, budgetGenReq = null;
+        try {
+            // Products = C33
+            const productsCell = summaryWorksheet.getCell('C33');
+            budgetProducts = productsCell.value ? parseNumericValue(productsCell.value) : null;
+
+            // Gen-Req = SUM(C42:C46) — calculated first so Services can subtract it
+            const grVals = ['C42', 'C43', 'C44', 'C45', 'C46'].map(c => {
+                const cell = summaryWorksheet.getCell(c);
+                return cell.value ? (parseNumericValue(cell.value) || 0) : 0;
+            });
+            const grTotal = grVals.reduce((a, b) => a + b, 0);
+            budgetGenReq = grTotal > 0 ? grTotal : null;
+
+            // Services = C34 - Gen-Req
+            const svcCell = summaryWorksheet.getCell('C34');
+            const svcRaw = svcCell.value ? parseNumericValue(svcCell.value) : null;
+            if (svcRaw !== null) {
+                budgetServices = svcRaw - (grTotal || 0);
+                if (budgetServices <= 0) budgetServices = null;
+            }
+
+            if (budgetProducts !== null) budgetProducts = parseFloat(budgetProducts.toFixed(2));
+            if (budgetServices !== null) budgetServices = parseFloat(budgetServices.toFixed(2));
+            if (budgetGenReq !== null) budgetGenReq = parseFloat(budgetGenReq.toFixed(2));
+
+            console.log(`📊 Budget Allocation - Products: ${budgetProducts}, Services: ${budgetServices}, Gen-Req: ${budgetGenReq}`);
+        } catch (err) {
+            console.log(`⚠️ Error extracting budget from Summary sheet (ExcelJS):`, err.message);
+        }
+
         console.log(`✅ Successfully parsed Excel file with ExcelJS - Margin: ${margin}%, Final Amount: ${formattedFinalAmount}`);
-        
+
         return {
             success: true,
             margin: margin,
             finalAmount: formattedFinalAmount,
             clientName: clientName,
             pic: pic,
-            accountManager: accountManager
+            accountManager: accountManager,
+            budgetProducts: budgetProducts,
+            budgetServices: budgetServices,
+            budgetGenReq: budgetGenReq
         };
-        
+
     } catch (error) {
         console.error('❌ ExcelJS failed to parse Excel file:', error.message);
         return {
@@ -1367,14 +1444,18 @@ async function parseExcelFile(buffer, password) {
             throw error;
         }
         
+        // Log all available sheets for debugging
+        const allAvailableSheets = Object.keys(workbook.Sheets);
+        console.log(`📊 [XLSX] All sheets in workbook: ${allAvailableSheets.join(', ')}`);
+
         // Check if Summary sheet exists
         if (!workbook.Sheets['Summary']) {
             return {
                 success: false,
-                error: 'Summary sheet not found in Excel file'
+                error: `Summary sheet not found in Excel file. Available sheets: ${allAvailableSheets.join(', ')}`
             };
         }
-        
+
         const summarySheet = workbook.Sheets['Summary'];
         
         // Read specific cells: E48 (margin) and F50 (final amount)
@@ -1421,17 +1502,49 @@ async function parseExcelFile(buffer, password) {
             console.log('⚠️ General Info sheet not found, skipping client data extraction');
         }
         
+        // Extract budget allocation from Summary sheet (rows 13, 19-21, 22-24)
+        let budgetProducts = null, budgetServices = null, budgetGenReq = null;
+
+        // Products = C33
+        const productsCell = summarySheet['C33'];
+        budgetProducts = productsCell ? parseNumericValue(productsCell.v) : null;
+
+        // Gen-Req = SUM(C42:C46) — calculated first so Services can subtract it
+        const grVals = ['C42', 'C43', 'C44', 'C45', 'C46'].map(c => {
+            const cell = summarySheet[c];
+            return cell ? (parseNumericValue(cell.v) || 0) : 0;
+        });
+        const grTotal = grVals.reduce((a, b) => a + b, 0);
+        budgetGenReq = grTotal > 0 ? grTotal : null;
+
+        // Services = C34 - Gen-Req
+        const svcCell = summarySheet['C34'];
+        const svcRaw = svcCell ? parseNumericValue(svcCell.v) : null;
+        if (svcRaw !== null) {
+            budgetServices = svcRaw - (grTotal || 0);
+            if (budgetServices <= 0) budgetServices = null;
+        }
+
+        if (budgetProducts !== null) budgetProducts = parseFloat(budgetProducts.toFixed(2));
+        if (budgetServices !== null) budgetServices = parseFloat(budgetServices.toFixed(2));
+        if (budgetGenReq !== null) budgetGenReq = parseFloat(budgetGenReq.toFixed(2));
+
+        console.log(`📊 Budget Allocation - Products: ${budgetProducts}, Services: ${budgetServices}, Gen-Req: ${budgetGenReq}`);
+
         console.log(`✅ Successfully parsed Excel file - Margin: ${margin}%, Final Amount: ${formattedFinalAmount}`);
-        
+
         return {
             success: true,
             margin: margin,
             finalAmount: formattedFinalAmount,
             clientName: clientName,
             pic: pic,
-            accountManager: accountManager
+            accountManager: accountManager,
+            budgetProducts: budgetProducts,
+            budgetServices: budgetServices,
+            budgetGenReq: budgetGenReq
         };
-        
+
     } catch (error) {
         console.error('❌ Failed to parse Excel file:', error.message);
         return {
@@ -1481,6 +1594,20 @@ async function updateProposalFromExcel(db, proposalUid, excelData, userIdentifie
         if (excelData.finalAmount !== null) {
             updateFields.push(`final_amt = ?`);
             updateValues.push(excelData.finalAmount);
+        }
+
+        // Budget allocation fields from Calcsheet
+        if (excelData.budgetProducts !== null && excelData.budgetProducts !== undefined) {
+            updateFields.push(`budget_products = ?`);
+            updateValues.push(excelData.budgetProducts);
+        }
+        if (excelData.budgetServices !== null && excelData.budgetServices !== undefined) {
+            updateFields.push(`budget_services = ?`);
+            updateValues.push(excelData.budgetServices);
+        }
+        if (excelData.budgetGenReq !== null && excelData.budgetGenReq !== undefined) {
+            updateFields.push(`budget_gen_req = ?`);
+            updateValues.push(excelData.budgetGenReq);
         }
 
         if (excelData.submittedDate) {

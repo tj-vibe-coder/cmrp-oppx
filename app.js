@@ -91,7 +91,7 @@ let declinedSummary;
 const DROPDOWN_FIELDS = ['solutions', 'sol_particulars', 'industries', 'ind_particulars', 'decision', 'account_mgr', 'pic', 'bom', 'status', 'opp_status', 'lost_rca', 'l_particulars', 'a', 'c', 'r', 'u', 'd'];
 const DROPDOWN_FIELDS_NORM = DROPDOWN_FIELDS.map(field => field.toLowerCase().replace(/[^a-z0-9]/g, ''));
 const encodedDateHeaders = ['encodeddate'];
-const withDayHeaders = ['datereceived', 'clientdeadline', 'submitteddate', 'dateawardedlost', 'forecastdate'];
+const withDayHeaders = ['datereceived', 'clientdeadline', 'submitteddate', 'dateawardedlost', 'forecastdate', 'podate'];
 const rightAlignColumns = ['finalamt'];
 const centerAlignColumns = ['mgr', 'pic', 'bom', 'rev', 'revision', 'margin', 'oppstatus', 'opportunitystatus', 'accountmanager', 'accountmgr', 'dateawardedlost'];
 let dropdownOptions = {};
@@ -120,7 +120,8 @@ function isDateField(header) {
 }
 
 function isCurrencyField(header) {
-    return normalizeField(header || '').includes('amt');
+    const norm = normalizeField(header || '');
+    return norm.includes('amt') || norm === 'budgetproducts' || norm === 'budgetservices' || norm === 'budgetgenreq';
 }
 
 function isMarginField(header) {
@@ -283,15 +284,20 @@ function formatHeaderText(header) {
         'encoded_date': 'ENC',           // Date format = compact header
         'date_awarded_lost': 'AWD',      // Ultra-short for date
         'remarks_comments': 'Remarks',
-        'final_amt': 'Amount'
+        'final_amt': 'Amount',
+        'po_number': 'PO#',
+        'po_date': 'PO Date',
+        'budget_products': 'Products',
+        'budget_services': 'Services',
+        'budget_gen_req': 'Gen-Req'
     };
-    
+
     // Check for exact matches first (case insensitive)
     const normalizedHeader = header.toLowerCase();
     if (headerShortcuts[normalizedHeader]) {
         return headerShortcuts[normalizedHeader];
     }
-    
+
     // Split on camelCase
     let text = header.replace(/([A-Z])/g, ' $1');
     
@@ -1548,6 +1554,16 @@ function createEditFieldContainer(field, rowData, headers) {
         labelText = 'U - Urgency';
     } else if (field === 'd') {
         labelText = 'D - Data Availability';
+    } else if (field === 'po_number') {
+        labelText = 'PO Number';
+    } else if (field === 'po_date') {
+        labelText = 'PO Date';
+    } else if (field === 'budget_products') {
+        labelText = 'Budget - Products';
+    } else if (field === 'budget_services') {
+        labelText = 'Budget - Services';
+    } else if (field === 'budget_gen_req') {
+        labelText = 'Budget - Gen-Req';
     }
     
     label.textContent = labelText;
@@ -1602,11 +1618,11 @@ function createEditFieldContainer(field, rowData, headers) {
                 input.value = numericValue;
             }
         }
-    } else if (field === 'final_amt') {
+    } else if (field === 'final_amt' || field === 'budget_products' || field === 'budget_services' || field === 'budget_gen_req') {
         input = document.createElement('input');
         input.type = 'text';
         input.placeholder = '0';
-        // For final_amount, format with commas for display
+        // Format with commas for display
         if (value) {
             const numericValue = parseCurrency(value);
             if (!isNaN(numericValue)) {
@@ -2366,7 +2382,8 @@ function showEditRowModal(rowIndex, isDuplicate = false) {
     const fieldSections = {
         'Basic Information': ['project_name', 'project_code', 'rev', 'client', 'solutions', 'sol_particulars', 'industries', 'ind_particulars'],
         'Assignment Information': ['account_mgr', 'pic', 'bom', 'status'],
-        'Financial Information': ['margin', 'final_amt', 'opp_status', 'submitted_date'],
+        'Financial Information': ['margin', 'final_amt', 'opp_status', 'submitted_date', 'po_number', 'po_date'],
+        'Budget Allocation': ['budget_products', 'budget_services', 'budget_gen_req'],
         'Important Dates': ['date_received', 'client_deadline', 'date_awarded_lost', 'forecast_date'],
         'Decision & Comments': ['decision', 'remarks_comments'],
         'Lost Analysis': ['lost_rca', 'l_particulars'],
@@ -6581,8 +6598,8 @@ async function handleEditFormSubmit(e) {
             continue; // Don't include these in the database submission
         }
         
-        // Strip commas from Final Amount fields for proper numeric processing
-        if ((key === 'final_amount' || key === 'final_amt') && value) {
+        // Strip commas from currency fields for proper numeric processing
+        if ((key === 'final_amount' || key === 'final_amt' || key === 'budget_products' || key === 'budget_services' || key === 'budget_gen_req') && value) {
             opportunityData[key] = removeCommas(value);
         } else {
             opportunityData[key] = value;
@@ -9344,6 +9361,29 @@ function updateFormWithSyncedData(syncedData) {
             highlightUpdatedField(submittedDateField);
         }
     }
+
+    // Budget allocation fields from Calcsheet
+    if (syncedData.budgetProducts !== null && syncedData.budgetProducts !== undefined) {
+        const field = document.querySelector('#editRowForm input[name="budget_products"]');
+        if (field) {
+            field.value = formatNumberWithCommas(syncedData.budgetProducts);
+            highlightUpdatedField(field);
+        }
+    }
+    if (syncedData.budgetServices !== null && syncedData.budgetServices !== undefined) {
+        const field = document.querySelector('#editRowForm input[name="budget_services"]');
+        if (field) {
+            field.value = formatNumberWithCommas(syncedData.budgetServices);
+            highlightUpdatedField(field);
+        }
+    }
+    if (syncedData.budgetGenReq !== null && syncedData.budgetGenReq !== undefined) {
+        const field = document.querySelector('#editRowForm input[name="budget_gen_req"]');
+        if (field) {
+            field.value = formatNumberWithCommas(syncedData.budgetGenReq);
+            highlightUpdatedField(field);
+        }
+    }
 }
 
 function highlightUpdatedField(field) {
@@ -9372,12 +9412,16 @@ function getCurrentOpportunityUid() {
 }
 
 function showSyncSuccessMessage(syncedData) {
+    const fmtCur = (v) => v !== null && v !== undefined ? '₱' + formatNumberWithCommas(v) : 'N/A';
     const message = `Successfully synced data from Drive:\n` +
                    `• Revision: ${syncedData.revisionNumber !== null && syncedData.revisionNumber !== undefined ? syncedData.revisionNumber : 'N/A'}\n` +
                    `• Margin: ${syncedData.margin ? syncedData.margin.toFixed(2) + '%' : 'N/A'}\n` +
-                   `• Amount: ${syncedData.finalAmount ? '₱' + formatNumberWithCommas(syncedData.finalAmount) : 'N/A'}\n` +
+                   `• Amount: ${syncedData.finalAmount ? fmtCur(syncedData.finalAmount) : 'N/A'}\n` +
+                   `• Products: ${fmtCur(syncedData.budgetProducts)}\n` +
+                   `• Services: ${fmtCur(syncedData.budgetServices)}\n` +
+                   `• Gen-Req: ${fmtCur(syncedData.budgetGenReq)}\n` +
                    `• File: ${syncedData.excelFileName || 'N/A'}`;
-    
+
     alert(message);
 }
 
