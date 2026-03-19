@@ -1073,22 +1073,8 @@ if (process.env.NODE_ENV === 'production' || process.env.ENABLE_WEEKLY_DIGEST ==
     console.log('[SERVER] Weekly digest disabled (development mode). Set ENABLE_WEEKLY_DIGEST=true to enable.');
 }
 
-// OP100 budget status reply poller: check every 5 minutes for "Product Budget Status" replies
-if (process.env.NODE_ENV === 'production' || process.env.ENABLE_BUDGET_POLLER === 'true') {
-    cron.schedule('*/5 * * * *', async () => {
-        try {
-            const result = await googleTasksService.checkOP100BudgetRequests();
-            if (result.processed > 0) {
-                console.log(`[BUDGET-POLLER] Processed ${result.processed} budget status request(s)`);
-            }
-        } catch (e) {
-            console.error('[BUDGET-POLLER] Error:', e.message);
-        }
-    }, { scheduled: true, timezone: 'Asia/Manila' });
-    console.log('[SERVER] OP100 budget status poller scheduled (every 5 minutes)');
-} else {
-    console.log('[SERVER] OP100 budget status poller disabled. Set ENABLE_BUDGET_POLLER=true to enable.');
-}
+// OP100 budget status poller disabled - use manual trigger or per-project endpoint only
+console.log('[SERVER] Budget status: use POST /api/op100-email/budget-status/:projectCode to send');
 
 // Start automated snapshots in production or when explicitly enabled
 if (process.env.NODE_ENV === 'production' || process.env.ENABLE_AUTO_SNAPSHOTS === 'true') {
@@ -1721,13 +1707,15 @@ app.post('/api/op100-email/maintenance', authenticateToken, requireAdmin, (req, 
 });
 
 // Manual trigger for budget status poller (for testing)
-app.post('/api/op100-email/check-budget-requests', authenticateToken, requireAdmin, async (req, res) => {
+// Send budget status for a specific project (replies in OP100 thread)
+app.post('/api/op100-email/budget-status/:projectCode', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    console.log('[BUDGET-STATUS] Manual trigger by', req.user?.email);
-    const result = await googleTasksService.checkOP100BudgetRequests();
+    const { projectCode } = req.params;
+    console.log(`[BUDGET-STATUS] Triggered for ${projectCode} by ${req.user?.email}`);
+    const result = await googleTasksService.sendBudgetStatusEmail(projectCode);
     res.json(result);
   } catch (e) {
-    console.error('[BUDGET-STATUS] Manual trigger error:', e.message);
+    console.error('[BUDGET-STATUS] Error:', e.message);
     res.status(500).json({ error: e.message });
   }
 });

@@ -808,6 +808,114 @@ class GoogleTasksService {
       return { success: false, error: error.message };
     }
   }
+
+  /**
+   * Send budget status email for a specific project.
+   * Replies in the existing OP100 thread if one exists.
+   */
+  async sendBudgetStatusEmail(projectCode) {
+    try {
+      // Get project info from DB
+      const oppRow = await db.query(
+        `SELECT project_name, account_mgr, budget_products, budget_services, budget_gen_req, op100_thread_id
+         FROM opps_monitoring WHERE project_code = ? LIMIT 1`,
+        [projectCode]
+      );
+      if (oppRow.rows.length === 0) return { success: false, reason: 'project_not_found' };
+
+      const opp = oppRow.rows[0];
+      const budgetProducts = parseFloat(opp.budget_products) || 0;
+      const budgetServices = parseFloat(opp.budget_services) || 0;
+
+      // Get expenses from Google Sheets
+      const poExpense = await this._getProductsExpenseFromSheet(projectCode);
+      const dlExpense = await this._getServicesExpenseFromSheet(projectCode);
+
+      const prodRemaining = budgetProducts - poExpense;
+      const svcRemaining = budgetServices - dlExpense;
+      const formatCurrency = (v) => '₱' + Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const fmtRemaining = (v) => v >= 0 ? formatCurrency(v) : '-' + formatCurrency(v) + ' (OVER BUDGET)';
+
+      const body = [
+        `Budget Status for ${projectCode} (${opp.project_name || 'N/A'})`,
+        ``,
+        `--- Products Budget ---`,
+        `Budget:      ${budgetProducts > 0 ? formatCurrency(budgetProducts) : 'N/A'}`,
+        `PO Expense:  ${formatCurrency(poExpense)}`,
+        `Remaining:   ${budgetProducts > 0 ? fmtRemaining(prodRemaining) : 'N/A'}`,
+        ``,
+        `--- Services Budget ---`,
+        `Budget:      ${budgetServices > 0 ? formatCurrency(budgetServices) : 'N/A'}`,
+        `DL Expense:  ${formatCurrency(dlExpense)}`,
+        `Remaining:   ${budgetServices > 0 ? fmtRemaining(svcRemaining) : 'N/A'}`,
+        `------------------------`,
+        ``,
+        `— CMRP OppX`,
+        ``,
+        `This is a System-generated email. Please do not reply.`
+      ].join('\n');
+
+      // Get recipients from DB
+      const recipients = await GoogleTasksService.getOP100Recipients(opp.account_mgr || '');
+      const allEmails = [...recipients.always, ...recipients.conditional];
+      const recipientEmails = [...new Set(allEmails.map(e => e.toLowerCase()))];
+      if (recipientEmails.length === 0) return { success: false, reason: 'no_recipients' };
+
+      // Find sender with valid tokens
+      const tokenUsers = await db.query(
+        `SELECT DISTINCT u.id, u.account_type FROM users u
+         INNER JOIN user_calendar_tokens uct ON u.id = uct.user_id
+         WHERE uct.google_email IS NOT NULL AND u.account_type IN ('Admin', 'System Admin')
+         ORDER BY u.name ASC`
+      );
+      if (tokenUsers.rows.length === 0) return { success: false, reason: 'no_sender' };
+
+      const senderTokens = await this.calendarOAuthService.ensureValidTokens(tokenUsers.rows[0].id);
+
+      const subject = `Re: [CMRP OppX] Project Awarded : ${projectCode} ${opp.project_name || ''}`.trim();
+
+      const rawLines = [
+        `To: ${recipientEmails.join(', ')}`,
+        `Subject: ${subject}`,
+        `Content-Type: text/plain; charset="UTF-8"`,
+      ];
+      // Thread in existing OP100 thread if available
+      if (opp.op100_thread_id) {
+        rawLines.push(`References: <op100-${projectCode}@cmrp-oppx>`);
+        rawLines.push(`In-Reply-To: <op100-${projectCode}@cmrp-oppx>`);
+      }
+      rawLines.push('', body);
+
+      const encodedMessage = Buffer.from(rawLines.join('\n'))
+        .toString('base64')
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '');
+
+      const oauth2Client = new google.auth.OAuth2(
+        process.env.GOOGLE_OAUTH_CLIENT_ID,
+        process.env.GOOGLE_OAUTH_CLIENT_SECRET,
+        process.env.GOOGLE_OAUTH_REDIRECT_URI || 'http://localhost:3000/auth/google/calendar/callback'
+      );
+      oauth2Client.setCredentials({
+        access_token: senderTokens.access_token,
+        refresh_token: senderTokens.refresh_token
+      });
+
+      const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+      const sendRequest = { userId: 'me', requestBody: { raw: encodedMessage } };
+      if (opp.op100_thread_id) sendRequest.requestBody.threadId = opp.op100_thread_id;
+
+      await gmail.users.messages.send(sendRequest);
+
+      console.log(`[BUDGET-STATUS] Sent for ${projectCode} to ${recipientEmails.length} recipients`);
+      return { success: true, projectCode, sent: recipientEmails.length };
+
+    } catch (error) {
+      console.error(`[BUDGET-STATUS] Failed for ${projectCode}:`, error.message);
+      return { success: false, error: error.message };
+    }
+  }
   /**
    * Poll OP100 email threads for budget status requests and auto-reply.
    * Looks for replies containing "Product Budget Status" in OP100 threads,
