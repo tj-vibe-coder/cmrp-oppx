@@ -925,21 +925,30 @@ class GoogleTasksService {
 
           const opp = oppRow.rows[0];
           const budgetProducts = parseFloat(opp.budget_products) || 0;
+          const budgetServices = parseFloat(opp.budget_services) || 0;
 
-          // Query PO List Google Sheet for total products expense
+          // Query Google Sheets for expenses
           const poExpense = await this._getProductsExpenseFromSheet(projectCode);
+          const dlExpense = await this._getServicesExpenseFromSheet(projectCode);
 
-          const remaining = budgetProducts - poExpense;
+          const prodRemaining = budgetProducts - poExpense;
+          const svcRemaining = budgetServices - dlExpense;
           const formatCurrency = (v) => '₱' + Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          const fmtRemaining = (v) => v >= 0 ? formatCurrency(v) : '-' + formatCurrency(v) + ' (OVER BUDGET)';
 
           const replyBody = [
-            `Product Budget Status for ${projectCode} (${opp.project_name || 'N/A'})`,
+            `Budget Status for ${projectCode} (${opp.project_name || 'N/A'})`,
             ``,
-            `--- Product Budget Summary ---`,
-            `Products Budget:    ${budgetProducts > 0 ? formatCurrency(budgetProducts) : 'N/A'}`,
-            `Total PO Expense:   ${formatCurrency(poExpense)}`,
-            `Remaining Budget:   ${remaining >= 0 ? formatCurrency(remaining) : '-' + formatCurrency(remaining) + ' (OVER BUDGET)'}`,
-            `-----------------------------`,
+            `--- Products Budget ---`,
+            `Budget:      ${budgetProducts > 0 ? formatCurrency(budgetProducts) : 'N/A'}`,
+            `PO Expense:  ${formatCurrency(poExpense)}`,
+            `Remaining:   ${budgetProducts > 0 ? fmtRemaining(prodRemaining) : 'N/A'}`,
+            ``,
+            `--- Services Budget ---`,
+            `Budget:      ${budgetServices > 0 ? formatCurrency(budgetServices) : 'N/A'}`,
+            `DL Expense:  ${formatCurrency(dlExpense)}`,
+            `Remaining:   ${budgetServices > 0 ? fmtRemaining(svcRemaining) : 'N/A'}`,
+            `------------------------`,
             ``,
             `— CMRP OppX`,
             ``,
@@ -1100,7 +1109,74 @@ class GoogleTasksService {
       return total;
 
     } catch (error) {
-      console.error(`[BUDGET-STATUS] Sheet query failed:`, error.message);
+      console.error(`[BUDGET-STATUS] Products sheet query failed:`, error.message);
+      return 0;
+    }
+  }
+
+  /**
+   * Query the DL Summary Per Project Google Sheet for total SERVICES expense.
+   * Columns: A=Project Number, O=Total
+   */
+  async _getServicesExpenseFromSheet(projectCode) {
+    try {
+      const spreadsheetId = process.env.DL_SUMMARY_SPREADSHEET_ID;
+      if (!spreadsheetId) {
+        console.log('[BUDGET-STATUS] DL_SUMMARY_SPREADSHEET_ID not configured');
+        return 0;
+      }
+
+      const keyRaw = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
+      let key;
+      try { key = JSON.parse(keyRaw); } catch (_) {
+        try { key = JSON.parse(Buffer.from(keyRaw, 'base64').toString()); } catch (_2) {
+          const fixed = keyRaw.replace(/\\n/g, '\n');
+          key = JSON.parse(fixed);
+        }
+      }
+
+      const auth = new google.auth.GoogleAuth({
+        credentials: key,
+        scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly']
+      });
+
+      const sheets = google.sheets({ version: 'v4', auth });
+      const res = await sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: 'DL Summary Per Project!A1:O5000',
+      });
+
+      const rows = res.data.values || [];
+      if (rows.length < 2) return 0;
+
+      // Header: A=PROJECT NUMBER, O=Total
+      const header = rows[0].map(h => (h || '').toLowerCase().trim());
+      const projIdx = header.findIndex(h => h.includes('project number'));
+      const totalIdx = header.findIndex(h => h === 'total');
+
+      if (projIdx === -1 || totalIdx === -1) {
+        console.log(`[BUDGET-STATUS] Could not find columns in DL Summary. Headers: ${header.join(', ')}`);
+        return 0;
+      }
+
+      let total = 0;
+      for (let i = 1; i < rows.length; i++) {
+        const row = rows[i];
+        const projNum = (row[projIdx] || '').trim();
+        if (projNum === projectCode) {
+          const amountStr = (row[totalIdx] || '').toString().replace(/[₱$,\s]/g, '');
+          const amt = parseFloat(amountStr);
+          if (!isNaN(amt) && amt > 0) {
+            total += amt;
+          }
+        }
+      }
+
+      console.log(`[BUDGET-STATUS] DL Summary total SERVICES for ${projectCode}: ₱${total.toLocaleString('en-US', { minimumFractionDigits: 2 })}`);
+      return total;
+
+    } catch (error) {
+      console.error(`[BUDGET-STATUS] Services sheet query failed:`, error.message);
       return 0;
     }
   }
