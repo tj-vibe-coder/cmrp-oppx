@@ -268,7 +268,8 @@ let pool;
         { name: 'po_date', type: 'TEXT' },
         { name: 'budget_products', type: 'REAL' },
         { name: 'budget_services', type: 'REAL' },
-        { name: 'budget_gen_req', type: 'REAL' }
+        { name: 'budget_gen_req', type: 'REAL' },
+        { name: 'op100_thread_id', type: 'TEXT' }
       ];
       for (const col of newCols) {
         if (!existingCols.includes(col.name)) {

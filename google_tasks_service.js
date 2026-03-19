@@ -717,13 +717,37 @@ class GoogleTasksService {
         `This is a System-generated email. Please do not reply.`
       ].filter(v => v !== null).join('\n');
 
-      const rawMessage = [
+      // Look up existing thread for this project
+      let existingThreadId = null;
+      if (projectCode) {
+        try {
+          const threadRow = await db.query(
+            `SELECT op100_thread_id FROM opps_monitoring WHERE project_code = ? AND op100_thread_id IS NOT NULL LIMIT 1`,
+            [projectCode]
+          );
+          if (threadRow.rows.length > 0 && threadRow.rows[0].op100_thread_id) {
+            existingThreadId = threadRow.rows[0].op100_thread_id;
+            console.log(`[OP100-EMAIL] Found existing thread ${existingThreadId} for ${projectCode}`);
+          }
+        } catch (e) {
+          console.log(`[OP100-EMAIL] Thread lookup failed: ${e.message}`);
+        }
+      }
+
+      const rawMessageLines = [
         `To: ${recipientEmails.join(', ')}`,
         `Subject: ${subject}`,
         `Content-Type: text/plain; charset="UTF-8"`,
-        ``,
-        body
-      ].join('\n');
+      ];
+      // Add References header to keep same thread
+      if (existingThreadId) {
+        rawMessageLines.push(`References: <op100-${projectCode}@cmrp-oppx>`);
+        rawMessageLines.push(`In-Reply-To: <op100-${projectCode}@cmrp-oppx>`);
+      } else {
+        rawMessageLines.push(`Message-ID: <op100-${projectCode}@cmrp-oppx>`);
+      }
+      rawMessageLines.push('', body);
+      const rawMessage = rawMessageLines.join('\n');
 
       const encodedMessage = Buffer.from(rawMessage)
         .toString('base64')
@@ -742,13 +766,31 @@ class GoogleTasksService {
       });
 
       const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
-      await gmail.users.messages.send({
+      const sendRequest = {
         userId: 'me',
         requestBody: { raw: encodedMessage }
-      });
+      };
+      if (existingThreadId) {
+        sendRequest.requestBody.threadId = existingThreadId;
+      }
+      const sentResult = await gmail.users.messages.send(sendRequest);
 
-      console.log(`[OP100-EMAIL] Sent to ${recipientEmails.length} recipients: ${recipientEmails.join(', ')}`);
-      return { success: true, sent: recipientEmails.length };
+      // Store thread ID for future replies on same project
+      const sentThreadId = sentResult.data.threadId;
+      if (sentThreadId && projectCode && !existingThreadId) {
+        try {
+          await db.query(
+            `UPDATE opps_monitoring SET op100_thread_id = ? WHERE project_code = ?`,
+            [sentThreadId, projectCode]
+          );
+          console.log(`[OP100-EMAIL] Stored thread ID ${sentThreadId} for ${projectCode}`);
+        } catch (e) {
+          console.log(`[OP100-EMAIL] Failed to store thread ID: ${e.message}`);
+        }
+      }
+
+      console.log(`[OP100-EMAIL] Sent to ${recipientEmails.length} recipients (thread: ${sentThreadId}): ${recipientEmails.join(', ')}`);
+      return { success: true, sent: recipientEmails.length, threadId: sentThreadId };
 
     } catch (error) {
       console.error(`[OP100-EMAIL] Failed:`, error.message);
