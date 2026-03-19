@@ -685,6 +685,9 @@ class GoogleTasksService {
       const allEmails = [...dbRecipients.always, ...dbRecipients.conditional, ...extraEnv];
       const recipientEmails = [...new Set(allEmails.map(e => e.toLowerCase()))];
 
+      console.log(`[OP100-EMAIL] Recipients for AM=${accountMgr}: always=${dbRecipients.always.length}, conditional=${dbRecipients.conditional.length}, env=${extraEnv.length}, total=${recipientEmails.length}`);
+      console.log(`[OP100-EMAIL] Sending to: ${recipientEmails.join(', ')}`);
+
       if (recipientEmails.length === 0) {
         console.log('[OP100-EMAIL] No recipients configured. Add recipients in Email Recipients page.');
         return { success: false, reason: 'no_recipients' };

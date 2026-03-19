@@ -17,7 +17,7 @@ const rateLimit = require('express-rate-limit');
 const cors = require('cors');
 
 const app = express();
-let op100MaintenanceMode = false; // runtime toggle for OP100 email sending
+global.op100MaintenanceMode = false; // runtime toggle for OP100 email sending
 const port = process.env.PORT || 3000; // Use environment port for Render
 
 // --- Helpers ---
@@ -1710,12 +1710,12 @@ app.delete('/api/email-recipients/:id', authenticateToken, requireAdmin, async (
 
 // --- OP100 Email Maintenance Mode (Admin only) ---
 app.get('/api/op100-email/maintenance', authenticateToken, requireAdmin, (req, res) => {
-  res.json({ enabled: !!op100MaintenanceMode });
+  res.json({ enabled: !!global.op100MaintenanceMode });
 });
 
 app.post('/api/op100-email/maintenance', authenticateToken, requireAdmin, (req, res) => {
   const enabled = !!req.body?.enabled;
-  op100MaintenanceMode = enabled;
+  global.op100MaintenanceMode = enabled;
   console.log('[OP100-MAINTENANCE] Set maintenance mode to', enabled, 'by', req.user?.email);
   res.json({ success: true, enabled });
 });
