@@ -294,6 +294,21 @@ let pool;
       console.error('[MIGRATION] budget_replies_processed table error:', migErr.message);
     }
 
+    // Auto-migrate: create email_recipients table
+    try {
+      await db.query(`CREATE TABLE IF NOT EXISTS email_recipients (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT NOT NULL,
+        name TEXT,
+        condition TEXT DEFAULT 'always',
+        am_code TEXT,
+        created_at TEXT DEFAULT (datetime('now'))
+      )`);
+      console.log('✅ [DB] email_recipients table ensured');
+    } catch (migErr) {
+      console.error('[MIGRATION] email_recipients table error:', migErr.message);
+    }
+
     // Test write capability
     try {
       const dbType = db.getDBType();
@@ -1630,6 +1645,67 @@ app.get('/api/health', (req, res) => {
     service: 'CMRP Opps Management Backend',
     version: '1.0.0'
   });
+});
+
+// --- Email Recipients CRUD (Admin only) ---
+app.get('/api/email-recipients', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const result = await db.query(`SELECT * FROM email_recipients ORDER BY condition ASC, email ASC`);
+    res.json({ recipients: result.rows });
+  } catch (e) {
+    console.error('[EMAIL-RECIPIENTS] GET error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/email-recipients', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { email, name, condition, am_code } = req.body;
+    if (!email) return res.status(400).json({ error: 'Email is required' });
+
+    // Check for duplicate
+    const existing = await db.query(`SELECT id FROM email_recipients WHERE LOWER(email) = LOWER(?)`, [email]);
+    if (existing.rows.length > 0) return res.status(400).json({ error: 'Email already exists' });
+
+    await db.query(
+      `INSERT INTO email_recipients (email, name, condition, am_code) VALUES (?, ?, ?, ?)`,
+      [email.trim().toLowerCase(), name || null, condition || 'always', am_code || null]
+    );
+    res.json({ success: true });
+  } catch (e) {
+    console.error('[EMAIL-RECIPIENTS] POST error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.put('/api/email-recipients/:id', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { email, name, condition, am_code } = req.body;
+    if (!email) return res.status(400).json({ error: 'Email is required' });
+
+    // Check for duplicate (exclude self)
+    const existing = await db.query(`SELECT id FROM email_recipients WHERE LOWER(email) = LOWER(?) AND id != ?`, [email, req.params.id]);
+    if (existing.rows.length > 0) return res.status(400).json({ error: 'Email already exists' });
+
+    await db.query(
+      `UPDATE email_recipients SET email = ?, name = ?, condition = ?, am_code = ? WHERE id = ?`,
+      [email.trim().toLowerCase(), name || null, condition || 'always', am_code || null, req.params.id]
+    );
+    res.json({ success: true });
+  } catch (e) {
+    console.error('[EMAIL-RECIPIENTS] PUT error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.delete('/api/email-recipients/:id', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    await db.query(`DELETE FROM email_recipients WHERE id = ?`, [req.params.id]);
+    res.json({ success: true });
+  } catch (e) {
+    console.error('[EMAIL-RECIPIENTS] DELETE error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // --- OP100 Email Maintenance Mode (Admin only) ---

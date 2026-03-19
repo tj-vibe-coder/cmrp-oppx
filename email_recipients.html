@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Email Recipients</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <link rel="icon" type="image/svg+xml" href="Logo/CMRP Logo Dark.svg">
+    <link rel="alternate icon" href="Logo/CMRP Logo Light.svg">
+    <link rel="stylesheet" href="styles.css?v=1750741234">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <script src="config.js"></script>
+    <style>
+        .recipient-card {
+            border: 1px solid var(--border-color, #e5e7eb);
+            border-radius: 8px;
+            padding: 12px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            background: var(--card-bg, #fff);
+        }
+        .recipient-card .email-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .recipient-card .email-info .material-icons {
+            color: var(--text-secondary, #6b7280);
+        }
+        .recipient-card .condition-badge {
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 12px;
+            background: #3b82f6;
+            color: white;
+            margin-left: 8px;
+        }
+        .recipient-card .condition-badge.always {
+            background: #10b981;
+        }
+        .recipient-actions {
+            display: flex;
+            gap: 6px;
+        }
+        .recipient-actions button {
+            border: none;
+            background: none;
+            cursor: pointer;
+            padding: 4px;
+            border-radius: 4px;
+        }
+        .recipient-actions button:hover {
+            background: var(--hover-bg, #f3f4f6);
+        }
+        .recipient-actions .delete-btn:hover {
+            background: #fee2e2;
+            color: #dc2626;
+        }
+        .add-form {
+            border: 1px solid var(--border-color, #e5e7eb);
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            background: var(--card-bg, #fff);
+        }
+        .add-form input, .add-form select {
+            padding: 8px 12px;
+            border: 1px solid var(--border-color, #e5e7eb);
+            border-radius: 6px;
+            background: var(--input-bg, #fff);
+            color: var(--text-primary, #111);
+            font-size: 14px;
+        }
+        .add-form input:focus, .add-form select:focus {
+            outline: none;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 2px rgba(59,130,246,0.15);
+        }
+        .section-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-secondary, #6b7280);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 12px;
+            margin-top: 24px;
+        }
+        .section-title:first-of-type {
+            margin-top: 0;
+        }
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: var(--text-secondary, #6b7280);
+        }
+    </style>
+</head>
+<body class="min-h-screen">
+    <div id="shared-topbar"></div>
+    <div id="shared-sidebar"></div>
+
+    <div class="main-content" style="padding-top: 1rem;">
+        <div id="accessDeniedBanner" style="display:none; background:#fee2e2; color:#b91c1c; padding:1rem; text-align:center; font-weight:bold;">
+            Access Denied - Admin privileges required
+        </div>
+
+        <div class="container mx-auto px-4 py-6">
+            <div class="flex justify-between items-center mb-6">
+                <div>
+                    <h1 class="text-2xl font-bold">Email Recipients</h1>
+                    <p style="color: var(--text-secondary, #6b7280); font-size: 14px; margin-top: 4px;">
+                        Manage who receives OP100 award notification emails
+                    </p>
+                </div>
+                <button id="addRecipientBtn" class="action-button" style="display:flex; align-items:center; gap:6px; padding:8px 16px; border-radius:6px; background:#3b82f6; color:white; border:none; cursor:pointer; font-size:14px;">
+                    <span class="material-icons" style="font-size:18px;">person_add</span>
+                    Add Recipient
+                </button>
+            </div>
+
+            <!-- Add Recipient Form (hidden by default) -->
+            <div id="addForm" class="add-form" style="display:none;">
+                <div style="display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap;">
+                    <div style="flex:1; min-width:250px;">
+                        <label style="font-size:12px; font-weight:600; display:block; margin-bottom:4px;">Email Address</label>
+                        <input type="email" id="newEmail" placeholder="name@cmrpautomation.com" style="width:100%;" />
+                    </div>
+                    <div style="min-width:180px;">
+                        <label style="font-size:12px; font-weight:600; display:block; margin-bottom:4px;">Name (optional)</label>
+                        <input type="text" id="newName" placeholder="Display name" style="width:100%;" />
+                    </div>
+                    <div style="min-width:160px;">
+                        <label style="font-size:12px; font-weight:600; display:block; margin-bottom:4px;">Condition</label>
+                        <select id="newCondition" style="width:100%;">
+                            <option value="always">Always</option>
+                            <option value="am_only">Only when AM</option>
+                        </select>
+                    </div>
+                    <div id="amCodeGroup" style="min-width:100px; display:none;">
+                        <label style="font-size:12px; font-weight:600; display:block; margin-bottom:4px;">AM Code</label>
+                        <input type="text" id="newAmCode" placeholder="e.g. JMO" style="width:100%;" />
+                    </div>
+                    <div style="display:flex; gap:8px;">
+                        <button id="saveBtn" style="padding:8px 20px; background:#10b981; color:white; border:none; border-radius:6px; cursor:pointer; font-size:14px;">Save</button>
+                        <button id="cancelBtn" style="padding:8px 20px; background:var(--hover-bg, #e5e7eb); color:var(--text-primary, #111); border:none; border-radius:6px; cursor:pointer; font-size:14px;">Cancel</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recipient List -->
+            <div id="recipientList">
+                <div class="empty-state">Loading...</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="shared-navigation.js"></script>
+    <script>
+    (async () => {
+        const authToken = localStorage.getItem('authToken');
+        if (!authToken) { window.location.href = 'login.html'; return; }
+
+        const sharedNav = new SharedNavigation();
+        await sharedNav.initialize();
+
+        const headers = { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + authToken };
+        const listEl = document.getElementById('recipientList');
+        const addForm = document.getElementById('addForm');
+        const conditionSelect = document.getElementById('newCondition');
+        const amCodeGroup = document.getElementById('amCodeGroup');
+
+        conditionSelect.addEventListener('change', () => {
+            amCodeGroup.style.display = conditionSelect.value === 'am_only' ? '' : 'none';
+        });
+
+        document.getElementById('addRecipientBtn').addEventListener('click', () => {
+            addForm.style.display = addForm.style.display === 'none' ? '' : 'none';
+            document.getElementById('newEmail').focus();
+        });
+
+        document.getElementById('cancelBtn').addEventListener('click', () => {
+            addForm.style.display = 'none';
+            clearForm();
+        });
+
+        document.getElementById('saveBtn').addEventListener('click', async () => {
+            const email = document.getElementById('newEmail').value.trim();
+            const name = document.getElementById('newName').value.trim();
+            const condition = conditionSelect.value;
+            const amCode = document.getElementById('newAmCode').value.trim().toUpperCase();
+
+            if (!email) { alert('Email is required'); return; }
+            if (condition === 'am_only' && !amCode) { alert('AM Code is required for conditional recipients'); return; }
+
+            const body = { email, name: name || null, condition, am_code: condition === 'am_only' ? amCode : null };
+
+            const editId = document.getElementById('saveBtn').dataset.editId;
+            let res;
+            if (editId) {
+                res = await fetch('/api/email-recipients/' + editId, { method: 'PUT', headers, body: JSON.stringify(body) });
+            } else {
+                res = await fetch('/api/email-recipients', { method: 'POST', headers, body: JSON.stringify(body) });
+            }
+
+            if (res.ok) {
+                addForm.style.display = 'none';
+                clearForm();
+                loadRecipients();
+            } else {
+                const err = await res.json();
+                alert(err.error || 'Failed to save');
+            }
+        });
+
+        function clearForm() {
+            document.getElementById('newEmail').value = '';
+            document.getElementById('newName').value = '';
+            conditionSelect.value = 'always';
+            document.getElementById('newAmCode').value = '';
+            amCodeGroup.style.display = 'none';
+            delete document.getElementById('saveBtn').dataset.editId;
+        }
+
+        async function loadRecipients() {
+            const res = await fetch('/api/email-recipients', { headers });
+            if (res.status === 403) {
+                document.getElementById('accessDeniedBanner').style.display = '';
+                listEl.innerHTML = '';
+                return;
+            }
+            const data = await res.json();
+            const recipients = data.recipients || [];
+
+            if (recipients.length === 0) {
+                listEl.innerHTML = '<div class="empty-state"><span class="material-icons" style="font-size:48px; display:block; margin-bottom:8px;">mail_outline</span>No recipients configured.<br>Click "Add Recipient" to get started.</div>';
+                return;
+            }
+
+            // Group by condition
+            const always = recipients.filter(r => r.condition === 'always');
+            const conditional = recipients.filter(r => r.condition === 'am_only');
+
+            let html = '';
+            if (always.length > 0) {
+                html += '<div class="section-title">Always Receive</div>';
+                always.forEach(r => { html += recipientCard(r); });
+            }
+            if (conditional.length > 0) {
+                html += '<div class="section-title">Conditional (AM-based)</div>';
+                conditional.forEach(r => { html += recipientCard(r); });
+            }
+            listEl.innerHTML = html;
+
+            // Attach event listeners
+            listEl.querySelectorAll('.edit-btn').forEach(btn => {
+                btn.addEventListener('click', () => editRecipient(btn.dataset.id, recipients));
+            });
+            listEl.querySelectorAll('.delete-btn').forEach(btn => {
+                btn.addEventListener('click', () => deleteRecipient(btn.dataset.id, btn.dataset.email));
+            });
+        }
+
+        function recipientCard(r) {
+            const badge = r.condition === 'am_only'
+                ? `<span class="condition-badge">AM: ${r.am_code || '?'}</span>`
+                : `<span class="condition-badge always">Always</span>`;
+            const nameDisplay = r.name ? `<strong>${r.name}</strong> &lt;${r.email}&gt;` : `<strong>${r.email}</strong>`;
+            return `
+                <div class="recipient-card">
+                    <div class="email-info">
+                        <span class="material-icons">email</span>
+                        <div>${nameDisplay} ${badge}</div>
+                    </div>
+                    <div class="recipient-actions">
+                        <button class="edit-btn" data-id="${r.id}" title="Edit"><span class="material-icons" style="font-size:18px;">edit</span></button>
+                        <button class="delete-btn" data-id="${r.id}" data-email="${r.email}" title="Remove"><span class="material-icons" style="font-size:18px;">delete</span></button>
+                    </div>
+                </div>`;
+        }
+
+        function editRecipient(id, recipients) {
+            const r = recipients.find(x => String(x.id) === String(id));
+            if (!r) return;
+            document.getElementById('newEmail').value = r.email;
+            document.getElementById('newName').value = r.name || '';
+            conditionSelect.value = r.condition || 'always';
+            document.getElementById('newAmCode').value = r.am_code || '';
+            amCodeGroup.style.display = r.condition === 'am_only' ? '' : 'none';
+            document.getElementById('saveBtn').dataset.editId = id;
+            addForm.style.display = '';
+            document.getElementById('newEmail').focus();
+        }
+
+        async function deleteRecipient(id, email) {
+            if (!confirm('Remove ' + email + ' from OP100 recipients?')) return;
+            const res = await fetch('/api/email-recipients/' + id, { method: 'DELETE', headers });
+            if (res.ok) loadRecipients();
+            else alert('Failed to delete');
+        }
+
+        loadRecipients();
+    })();
+    </script>
+</body>
+</html>

@@ -609,21 +609,28 @@ class GoogleTasksService {
     }
   }
 
-  static OP100_REQUIRED_RECIPIENTS = [
-    'tyronejames.caballero@cmrpautomation.com',
-    'rojel.rivera@cmrpautomation.com',
-    'procurement@cmrpautomation.com',
-    'jayson.bornales@cmrpautomation.com',
-    'dianne.rael@cmrpautomation.com',
-    'marjori.cortez@cmrpautomation.com',
-    'logistics@cmrpautomation.com',
-  ];
-
-  // Conditional recipients based on Account Manager
-  static OP100_AM_RECIPIENTS = {
-    'JMO': ['jun@cmr.ph', 'Jun.ortiz@cmrpautomation.com'],
-    'CBD': ['crisostomo.diaz@cmrpautomation.com'],
-  };
+  /**
+   * Get OP100 recipients from DB (email_recipients table).
+   * Returns { always: [emails], amConditional: [emails matching AM] }
+   */
+  static async getOP100Recipients(accountMgr) {
+    try {
+      const result = await db.query(`SELECT email, condition, am_code FROM email_recipients`);
+      const always = [];
+      const conditional = [];
+      for (const r of result.rows) {
+        if (r.condition === 'always') {
+          always.push(r.email);
+        } else if (r.condition === 'am_only' && r.am_code && r.am_code === accountMgr) {
+          conditional.push(r.email);
+        }
+      }
+      return { always, conditional };
+    } catch (e) {
+      console.error('[OP100-EMAIL] Failed to load recipients from DB:', e.message);
+      return { always: [], conditional: [] };
+    }
+  }
 
   /**
    * Send email notification when a project is awarded (OP100).
@@ -672,12 +679,16 @@ class GoogleTasksService {
         return { success: false, error: 'No valid sender tokens' };
       }
 
-      // Build de-duped recipient list: required list + AM-conditional + env + DB emails
-      const amConditional = GoogleTasksService.OP100_AM_RECIPIENTS[accountMgr] || [];
+      // Build de-duped recipient list from DB + env
+      const dbRecipients = await GoogleTasksService.getOP100Recipients(accountMgr);
       const extraEnv = (process.env.OP100_NOTIFICATION_EMAILS || '').split(',').map(e => e.trim()).filter(Boolean);
-      const dbEmails = tokenUsers.rows.map(r => r.google_email).filter(Boolean);
-      const allEmails = [...GoogleTasksService.OP100_REQUIRED_RECIPIENTS, ...amConditional, ...extraEnv, ...dbEmails];
+      const allEmails = [...dbRecipients.always, ...dbRecipients.conditional, ...extraEnv];
       const recipientEmails = [...new Set(allEmails.map(e => e.toLowerCase()))];
+
+      if (recipientEmails.length === 0) {
+        console.log('[OP100-EMAIL] No recipients configured. Add recipients in Email Recipients page.');
+        return { success: false, reason: 'no_recipients' };
+      }
 
       const amt = parseFloat(String(finalAmt || '0').replace(/[₱$,]/g, ''));
       const formatCurrency = (v) => '₱' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -935,10 +946,9 @@ class GoogleTasksService {
             `This is a System-generated email. Please do not reply.`
           ].join('\n');
 
-          // Build reply-all recipient list: all OP100 recipients + AM-conditional
-          const replyAM = opp.account_mgr || '';
-          const amConditional = GoogleTasksService.OP100_AM_RECIPIENTS[replyAM] || [];
-          const allReplyRecipients = [...GoogleTasksService.OP100_REQUIRED_RECIPIENTS, ...amConditional];
+          // Build reply-all recipient list from DB
+          const replyRecipients = await GoogleTasksService.getOP100Recipients(opp.account_mgr || '');
+          const allReplyRecipients = [...replyRecipients.always, ...replyRecipients.conditional];
           // Add the person who requested (in case they're not in the list)
           const requesterEmail = headers.find(h => h.name.toLowerCase() === 'from')?.value || '';
           if (requesterEmail) allReplyRecipients.push(requesterEmail);

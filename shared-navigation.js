@@ -32,6 +32,7 @@ class SharedNavigation {
             'user_management.html': 'user_management',
             'client_management.html': 'client_management',
             'csv_formatter.html': 'csv_formatter',
+            'email_recipients.html': 'email_recipients',
             'opps_monitoring_import_export.html': 'opps_monitoring_import_export',
             'project-detail.html': 'index' // Project detail pages should highlight opportunities
         };
