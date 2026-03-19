@@ -13,14 +13,15 @@
     <script src="config.js"></script>
     <style>
         .recipient-card {
-            border: 1px solid var(--border-color, #e5e7eb);
+            border: 1px solid var(--border-container, #e5e7eb);
             border-radius: 8px;
             padding: 12px 16px;
             display: flex;
             align-items: center;
             justify-content: space-between;
             margin-bottom: 8px;
-            background: var(--card-bg, #fff);
+            background: var(--bg-row, #fff);
+            color: var(--text-row, #202124);
         }
         .recipient-card .email-info {
             display: flex;
@@ -28,7 +29,7 @@
             gap: 12px;
         }
         .recipient-card .email-info .material-icons {
-            color: var(--text-secondary, #6b7280);
+            color: var(--text-label, #6b7280);
         }
         .recipient-card .condition-badge {
             font-size: 11px;
@@ -51,38 +52,49 @@
             cursor: pointer;
             padding: 4px;
             border-radius: 4px;
+            color: var(--text-label, #6b7280);
         }
         .recipient-actions button:hover {
-            background: var(--hover-bg, #f3f4f6);
+            background: var(--bg-row-hover, #f3f4f6);
         }
         .recipient-actions .delete-btn:hover {
-            background: #fee2e2;
-            color: #dc2626;
+            background: #7f1d1d;
+            color: #fca5a5;
         }
         .add-form {
-            border: 1px solid var(--border-color, #e5e7eb);
+            border: 1px solid var(--border-container, #e5e7eb);
             border-radius: 8px;
             padding: 20px;
             margin-bottom: 20px;
-            background: var(--card-bg, #fff);
+            background: var(--bg-row, #fff);
+        }
+        .add-form label {
+            color: var(--text-label, #5f6368);
         }
         .add-form input, .add-form select {
             padding: 8px 12px;
-            border: 1px solid var(--border-color, #e5e7eb);
+            border: 1px solid var(--border-control, #e5e7eb);
             border-radius: 6px;
-            background: var(--input-bg, #fff);
-            color: var(--text-primary, #111);
+            background: var(--bg-control, #fff);
+            color: var(--text-control, #202124);
             font-size: 14px;
+        }
+        .add-form input::placeholder {
+            color: var(--placeholder-control, #9ca3af);
         }
         .add-form input:focus, .add-form select:focus {
             outline: none;
             border-color: #3b82f6;
             box-shadow: 0 0 0 2px rgba(59,130,246,0.15);
         }
+        .add-form select option {
+            background: var(--bg-control, #fff);
+            color: var(--text-control, #202124);
+        }
         .section-title {
             font-size: 14px;
             font-weight: 600;
-            color: var(--text-secondary, #6b7280);
+            color: var(--text-label, #5f6368);
             text-transform: uppercase;
             letter-spacing: 0.05em;
             margin-bottom: 12px;
@@ -94,7 +106,7 @@
         .empty-state {
             text-align: center;
             padding: 40px;
-            color: var(--text-secondary, #6b7280);
+            color: var(--text-label, #5f6368);
         }
     </style>
 </head>
