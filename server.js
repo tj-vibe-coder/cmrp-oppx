@@ -282,6 +282,18 @@ let pool;
       console.error('[MIGRATION] Auto-migrate PO/budget columns error:', migErr.message);
     }
 
+    // Auto-migrate: create budget_replies_processed table
+    try {
+      await db.query(`CREATE TABLE IF NOT EXISTS budget_replies_processed (
+        message_id TEXT PRIMARY KEY,
+        project_code TEXT,
+        processed_at TEXT DEFAULT (datetime('now'))
+      )`);
+      console.log('✅ [DB] budget_replies_processed table ensured');
+    } catch (migErr) {
+      console.error('[MIGRATION] budget_replies_processed table error:', migErr.message);
+    }
+
     // Test write capability
     try {
       const dbType = db.getDBType();

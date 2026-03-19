@@ -840,10 +840,10 @@ class GoogleTasksService {
 
       const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
 
-      // Search for unread replies in OP100 threads containing budget keywords
+      // Search for replies in OP100 threads containing budget keywords (last 24h)
       const searchRes = await gmail.users.messages.list({
         userId: 'me',
-        q: 'subject:"[CMRP OppX] Project Awarded" is:unread "Product Budget Status"',
+        q: 'subject:"[CMRP OppX] Project Awarded" "Product Budget Status" newer_than:1d',
         maxResults: 10
       });
 
@@ -852,11 +852,17 @@ class GoogleTasksService {
         return { success: true, processed: 0 };
       }
 
-      console.log(`[BUDGET-STATUS] Found ${messages.length} unread budget status request(s)`);
+      console.log(`[BUDGET-STATUS] Found ${messages.length} budget status message(s) to check`);
       let processed = 0;
 
       for (const msg of messages) {
         try {
+          // Skip if already processed
+          const alreadyDone = await db.query(
+            `SELECT message_id FROM budget_replies_processed WHERE message_id = ?`, [msg.id]
+          );
+          if (alreadyDone.rows.length > 0) continue;
+
           const fullMsg = await gmail.users.messages.get({
             userId: 'me',
             id: msg.id,
@@ -867,10 +873,18 @@ class GoogleTasksService {
           const subject = headers.find(h => h.name.toLowerCase() === 'subject')?.value || '';
           const threadId = fullMsg.data.threadId;
 
+          // Skip the original OP100 notification (sent by system, not a reply)
+          const from = headers.find(h => h.name.toLowerCase() === 'from')?.value || '';
+          const isSystemMsg = !subject.toLowerCase().startsWith('re:');
+          if (isSystemMsg) {
+            await db.query(`INSERT OR IGNORE INTO budget_replies_processed (message_id, project_code) VALUES (?, ?)`, [msg.id, 'skip']);
+            continue;
+          }
+
           // Verify body contains "product budget status" (case-insensitive)
           const bodyData = this._extractMessageBody(fullMsg.data.payload);
           if (!bodyData || !bodyData.toLowerCase().includes('product budget status')) {
-            await this._markAsRead(gmail, msg.id);
+            await db.query(`INSERT OR IGNORE INTO budget_replies_processed (message_id, project_code) VALUES (?, ?)`, [msg.id, 'skip']);
             continue;
           }
 
@@ -954,7 +968,8 @@ class GoogleTasksService {
             }
           });
 
-          // Mark original request as read
+          // Mark as processed in DB and mark as read in Gmail
+          await db.query(`INSERT OR IGNORE INTO budget_replies_processed (message_id, project_code) VALUES (?, ?)`, [msg.id, projectCode]);
           await this._markAsRead(gmail, msg.id);
 
           console.log(`[BUDGET-STATUS] Replied to budget request for ${projectCode} (budget: ${formatCurrency(budgetProducts)}, expense: ${formatCurrency(poExpense)}, remaining: ${formatCurrency(remaining)})`);
