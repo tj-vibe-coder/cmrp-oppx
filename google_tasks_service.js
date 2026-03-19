@@ -962,7 +962,7 @@ class GoogleTasksService {
       // Search for replies in OP100 threads containing budget keywords (last 24h)
       const searchRes = await gmail.users.messages.list({
         userId: 'me',
-        q: 'subject:"[CMRP OppX] Project Awarded" "budget status" newer_than:1d',
+        q: 'subject:"[CMRP OppX] Project Awarded" "budget status" newer_than:10m',
         maxResults: 10
       });
 
@@ -985,122 +985,36 @@ class GoogleTasksService {
           const fullMsg = await gmail.users.messages.get({
             userId: 'me',
             id: msg.id,
-            format: 'full'
+            format: 'metadata',
+            metadataHeaders: ['Subject', 'From']
           });
 
           const headers = fullMsg.data.payload.headers || [];
           const subject = headers.find(h => h.name.toLowerCase() === 'subject')?.value || '';
-          const threadId = fullMsg.data.threadId;
 
-          // Skip the original OP100 notification (sent by system, not a reply)
-          const from = headers.find(h => h.name.toLowerCase() === 'from')?.value || '';
-          const isSystemMsg = !subject.toLowerCase().startsWith('re:');
-          if (isSystemMsg) {
+          // Skip the original OP100 notification (not a reply)
+          if (!subject.toLowerCase().startsWith('re:')) {
             await db.query(`INSERT OR IGNORE INTO budget_replies_processed (message_id, project_code) VALUES (?, ?)`, [msg.id, 'skip']);
             continue;
           }
 
-          // Verify body contains "product budget status" (case-insensitive)
-          const bodyData = this._extractMessageBody(fullMsg.data.payload);
-          if (!bodyData || !bodyData.toLowerCase().includes('budget status')) {
-            await db.query(`INSERT OR IGNORE INTO budget_replies_processed (message_id, project_code) VALUES (?, ?)`, [msg.id, 'skip']);
-            continue;
-          }
-
-          // Extract project code from subject: "[CMRP OppX] Project Awarded : CMRP26010027 ProjectName"
+          // Extract project code from subject
           const projMatch = subject.match(/Project Awarded\s*:\s*(CMRP\d+)/i);
           if (!projMatch) {
-            console.log(`[BUDGET-STATUS] Could not extract project code from: ${subject}`);
-            await this._markAsRead(gmail, msg.id);
+            await db.query(`INSERT OR IGNORE INTO budget_replies_processed (message_id, project_code) VALUES (?, ?)`, [msg.id, 'skip']);
             continue;
           }
 
           const projectCode = projMatch[1];
-          console.log(`[BUDGET-STATUS] Processing budget request for ${projectCode}`);
 
-          // Get products budget from DB
-          const oppRow = await db.query(
-            `SELECT project_name, account_mgr, budget_products, budget_services, budget_gen_req, op100_thread_id
-             FROM opps_monitoring WHERE project_code = ? LIMIT 1`,
-            [projectCode]
-          );
-
-          if (oppRow.rows.length === 0) {
-            console.log(`[BUDGET-STATUS] Project ${projectCode} not found in DB`);
-            await this._markAsRead(gmail, msg.id);
-            continue;
-          }
-
-          const opp = oppRow.rows[0];
-          const budgetProducts = parseFloat(opp.budget_products) || 0;
-          const budgetServices = parseFloat(opp.budget_services) || 0;
-
-          // Query Google Sheets for expenses
-          const poExpense = await this._getProductsExpenseFromSheet(projectCode);
-          const dlExpense = await this._getServicesExpenseFromSheet(projectCode);
-
-          const prodRemaining = budgetProducts - poExpense;
-          const svcRemaining = budgetServices - dlExpense;
-          const formatCurrency = (v) => '₱' + Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-          const fmtRemaining = (v) => v >= 0 ? formatCurrency(v) : '-' + formatCurrency(v) + ' (OVER BUDGET)';
-
-          const replyBody = [
-            `Budget Status for ${projectCode} (${opp.project_name || 'N/A'})`,
-            ``,
-            `--- Products Budget ---`,
-            `Budget:      ${budgetProducts > 0 ? formatCurrency(budgetProducts) : 'N/A'}`,
-            `PO Expense:  ${formatCurrency(poExpense)}`,
-            `Remaining:   ${budgetProducts > 0 ? fmtRemaining(prodRemaining) : 'N/A'}`,
-            ``,
-            `--- Services Budget ---`,
-            `Budget:      ${budgetServices > 0 ? formatCurrency(budgetServices) : 'N/A'}`,
-            `DL Expense:  ${formatCurrency(dlExpense)}`,
-            `Remaining:   ${budgetServices > 0 ? fmtRemaining(svcRemaining) : 'N/A'}`,
-            `------------------------`,
-            ``,
-            `— CMRP OppX`,
-            ``,
-            `This is a System-generated email. Please do not reply.`
-          ].join('\n');
-
-          // Build reply-all recipient list from DB
-          const replyRecipients = await GoogleTasksService.getOP100Recipients(opp.account_mgr || '');
-          const allReplyRecipients = [...replyRecipients.always, ...replyRecipients.conditional];
-          // Add the person who requested (in case they're not in the list)
-          const requesterEmail = headers.find(h => h.name.toLowerCase() === 'from')?.value || '';
-          if (requesterEmail) allReplyRecipients.push(requesterEmail);
-          const replyTo = [...new Set(allReplyRecipients.map(e => e.toLowerCase()))].join(', ');
-
-          const replyHeaders = [
-            `To: ${replyTo}`,
-            `Subject: Re: ${subject.replace(/^Re:\s*/i, '')}`,
-            `Content-Type: text/plain; charset="UTF-8"`,
-            `In-Reply-To: ${headers.find(h => h.name.toLowerCase() === 'message-id')?.value || ''}`,
-            `References: ${headers.find(h => h.name.toLowerCase() === 'message-id')?.value || ''}`,
-            ``,
-            replyBody
-          ].join('\n');
-
-          const encodedReply = Buffer.from(replyHeaders)
-            .toString('base64')
-            .replace(/\+/g, '-')
-            .replace(/\//g, '_')
-            .replace(/=+$/, '');
-
-          await gmail.users.messages.send({
-            userId: 'me',
-            requestBody: {
-              raw: encodedReply,
-              threadId: threadId
-            }
-          });
-
-          // Mark as processed in DB and mark as read in Gmail
+          // Mark as processed FIRST to prevent duplicate sends
           await db.query(`INSERT OR IGNORE INTO budget_replies_processed (message_id, project_code) VALUES (?, ?)`, [msg.id, projectCode]);
           await this._markAsRead(gmail, msg.id);
 
-          console.log(`[BUDGET-STATUS] Replied to budget request for ${projectCode} (budget: ${formatCurrency(budgetProducts)}, expense: ${formatCurrency(poExpense)}, remaining: ${formatCurrency(remaining)})`);
-          processed++;
+          // Send budget status for this one project only
+          console.log(`[BUDGET-STATUS] Reply detected for ${projectCode}, sending budget status`);
+          const result = await this.sendBudgetStatusEmail(projectCode);
+          if (result.success) processed++;
 
         } catch (msgErr) {
           console.error(`[BUDGET-STATUS] Error processing message ${msg.id}:`, msgErr.message);
