@@ -836,27 +836,48 @@ class GoogleTasksService {
 
       const prodRemaining = budgetProducts - poExpense;
       const svcRemaining = budgetServices - dlExpense;
-      const formatCurrency = (v) => '₱' + Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-      const fmtRemaining = (v) => v >= 0 ? formatCurrency(v) : '-' + formatCurrency(v) + ' (OVER BUDGET)';
+      const fmt = (v) => '₱' + Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const fmtHtml = (v) => v >= 0
+        ? `<span style="color:#16a34a;font-weight:bold;">${fmt(v)}</span>`
+        : `<span style="color:#dc2626;font-weight:bold;">-${fmt(v)} (OVER BUDGET)</span>`;
 
-      const body = [
-        `Budget Status for ${projectCode} (${opp.project_name || 'N/A'})`,
-        ``,
-        `--- Products Budget ---`,
-        `Budget:      ${budgetProducts > 0 ? formatCurrency(budgetProducts) : 'N/A'}`,
-        `PO Expense:  ${formatCurrency(poExpense)}`,
-        `Remaining:   ${budgetProducts > 0 ? fmtRemaining(prodRemaining) : 'N/A'}`,
-        ``,
-        `--- Services Budget ---`,
-        `Budget:      ${budgetServices > 0 ? formatCurrency(budgetServices) : 'N/A'}`,
-        `DL Expense:  ${formatCurrency(dlExpense)}`,
-        `Remaining:   ${budgetServices > 0 ? fmtRemaining(svcRemaining) : 'N/A'}`,
-        `------------------------`,
-        ``,
-        `— CMRP OppX`,
-        ``,
-        `This is a System-generated email. Please do not reply.`
-      ].join('\n');
+      const body = `
+<div style="font-family:Arial,sans-serif;font-size:14px;color:#333;">
+  <h3 style="margin:0 0 16px;">Budget Status for ${projectCode} (${opp.project_name || 'N/A'})</h3>
+  <table style="border-collapse:collapse;min-width:400px;">
+    <tr style="background:#f1f5f9;">
+      <td colspan="2" style="padding:8px 12px;font-weight:bold;border:1px solid #e2e8f0;">Products Budget</td>
+    </tr>
+    <tr>
+      <td style="padding:6px 12px;border:1px solid #e2e8f0;width:140px;">Budget</td>
+      <td style="padding:6px 12px;border:1px solid #e2e8f0;text-align:right;">${budgetProducts > 0 ? fmt(budgetProducts) : 'N/A'}</td>
+    </tr>
+    <tr>
+      <td style="padding:6px 12px;border:1px solid #e2e8f0;">PO Expense</td>
+      <td style="padding:6px 12px;border:1px solid #e2e8f0;text-align:right;">${fmt(poExpense)}</td>
+    </tr>
+    <tr>
+      <td style="padding:6px 12px;border:1px solid #e2e8f0;font-weight:bold;">Remaining</td>
+      <td style="padding:6px 12px;border:1px solid #e2e8f0;text-align:right;">${budgetProducts > 0 ? fmtHtml(prodRemaining) : 'N/A'}</td>
+    </tr>
+    <tr style="background:#f1f5f9;">
+      <td colspan="2" style="padding:8px 12px;font-weight:bold;border:1px solid #e2e8f0;">Services Budget</td>
+    </tr>
+    <tr>
+      <td style="padding:6px 12px;border:1px solid #e2e8f0;">Budget</td>
+      <td style="padding:6px 12px;border:1px solid #e2e8f0;text-align:right;">${budgetServices > 0 ? fmt(budgetServices) : 'N/A'}</td>
+    </tr>
+    <tr>
+      <td style="padding:6px 12px;border:1px solid #e2e8f0;">DL Expense</td>
+      <td style="padding:6px 12px;border:1px solid #e2e8f0;text-align:right;">${fmt(dlExpense)}</td>
+    </tr>
+    <tr>
+      <td style="padding:6px 12px;border:1px solid #e2e8f0;font-weight:bold;">Remaining</td>
+      <td style="padding:6px 12px;border:1px solid #e2e8f0;text-align:right;">${budgetServices > 0 ? fmtHtml(svcRemaining) : 'N/A'}</td>
+    </tr>
+  </table>
+  <p style="margin-top:16px;color:#888;font-size:12px;">— CMRP OppX<br>This is a System-generated email. Please do not reply.</p>
+</div>`.trim();
 
       // Get recipients from DB
       const recipients = await GoogleTasksService.getOP100Recipients(opp.account_mgr || '');
@@ -880,7 +901,8 @@ class GoogleTasksService {
       const rawLines = [
         `To: ${recipientEmails.join(', ')}`,
         `Subject: ${subject}`,
-        `Content-Type: text/plain; charset="UTF-8"`,
+        `MIME-Version: 1.0`,
+        `Content-Type: text/html; charset="UTF-8"`,
       ];
       // Thread in existing OP100 thread if available
       if (opp.op100_thread_id) {
