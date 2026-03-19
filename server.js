@@ -1632,6 +1632,18 @@ app.post('/api/op100-email/maintenance', authenticateToken, requireAdmin, (req, 
   res.json({ success: true, enabled });
 });
 
+// Manual trigger for budget status poller (for testing)
+app.post('/api/op100-email/check-budget-requests', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    console.log('[BUDGET-STATUS] Manual trigger by', req.user?.email);
+    const result = await googleTasksService.checkOP100BudgetRequests();
+    res.json(result);
+  } catch (e) {
+    console.error('[BUDGET-STATUS] Manual trigger error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // --- User Preferences Endpoint ---
 app.get('/api/user-preferences', authenticateToken, (req, res) => {
   // Placeholder endpoint to prevent 404 errors
