@@ -2430,6 +2430,40 @@ function showEditRowModal(rowIndex, isDuplicate = false) {
             section.appendChild(row);
         }
         
+        // Add "Send Budget Status" button for OP100 projects in Budget Allocation section
+        if (sectionTitle === 'Budget Allocation' && rowData.opp_status && rowData.opp_status.toUpperCase() === 'OP100' && rowData.project_code) {
+            const btnRow = document.createElement('div');
+            btnRow.style.cssText = 'padding: 8px 0;';
+            const budgetBtn = document.createElement('button');
+            budgetBtn.type = 'button';
+            budgetBtn.textContent = 'Send Budget Status Email';
+            budgetBtn.style.cssText = 'padding:8px 16px; background:#3b82f6; color:white; border:none; border-radius:6px; cursor:pointer; font-size:13px; display:flex; align-items:center; gap:6px;';
+            budgetBtn.innerHTML = '<span class="material-icons" style="font-size:16px;">mail</span> Send Budget Status Email';
+            budgetBtn.addEventListener('click', async () => {
+                if (!confirm('Send budget status email for ' + rowData.project_code + '?')) return;
+                budgetBtn.disabled = true;
+                budgetBtn.textContent = 'Sending...';
+                try {
+                    const res = await fetch('/api/op100-email/budget-status/' + rowData.project_code, {
+                        method: 'POST',
+                        headers: { 'Authorization': 'Bearer ' + localStorage.getItem('authToken') }
+                    });
+                    const data = await res.json();
+                    if (data.success) {
+                        alert('Budget status email sent to ' + data.sent + ' recipient(s)');
+                    } else {
+                        alert('Failed: ' + (data.reason || data.error || 'Unknown error'));
+                    }
+                } catch (e) {
+                    alert('Error: ' + e.message);
+                }
+                budgetBtn.disabled = false;
+                budgetBtn.innerHTML = '<span class="material-icons" style="font-size:16px;">mail</span> Send Budget Status Email';
+            });
+            btnRow.appendChild(budgetBtn);
+            section.appendChild(btnRow);
+        }
+
         form.appendChild(section);
     });
     

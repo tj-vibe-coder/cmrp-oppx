@@ -1073,22 +1073,7 @@ if (process.env.NODE_ENV === 'production' || process.env.ENABLE_WEEKLY_DIGEST ==
     console.log('[SERVER] Weekly digest disabled (development mode). Set ENABLE_WEEKLY_DIGEST=true to enable.');
 }
 
-// OP100 budget status reply poller: check every 5 minutes for recent "budget status" replies
-if (process.env.NODE_ENV === 'production' || process.env.ENABLE_BUDGET_POLLER === 'true') {
-    cron.schedule('*/5 * * * *', async () => {
-        try {
-            const result = await googleTasksService.checkOP100BudgetRequests();
-            if (result.processed > 0) {
-                console.log(`[BUDGET-POLLER] Processed ${result.processed} budget status request(s)`);
-            }
-        } catch (e) {
-            console.error('[BUDGET-POLLER] Error:', e.message);
-        }
-    }, { scheduled: true, timezone: 'Asia/Manila' });
-    console.log('[SERVER] OP100 budget status poller scheduled (every 5 minutes)');
-} else {
-    console.log('[SERVER] OP100 budget status poller disabled. Set ENABLE_BUDGET_POLLER=true to enable.');
-}
+// Budget status: per-project only via POST /api/op100-email/budget-status/:projectCode
 
 // Start automated snapshots in production or when explicitly enabled
 if (process.env.NODE_ENV === 'production' || process.env.ENABLE_AUTO_SNAPSHOTS === 'true') {
