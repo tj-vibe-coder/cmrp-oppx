@@ -1011,16 +1011,29 @@ class GoogleTasksService {
           const fullMsg = await gmail.users.messages.get({
             userId: 'me',
             id: msg.id,
-            format: 'metadata',
-            metadataHeaders: ['Subject', 'From']
+            format: 'full'
           });
 
           const headers = fullMsg.data.payload.headers || [];
           const subject = headers.find(h => h.name.toLowerCase() === 'subject')?.value || '';
+          const from = headers.find(h => h.name.toLowerCase() === 'from')?.value || '';
+
+          // Skip messages sent BY the system itself (prevents feedback loop)
+          if (adminUser.google_email && from.toLowerCase().includes(adminUser.google_email.toLowerCase())) {
+            await db.query(`INSERT OR IGNORE INTO budget_replies_processed (message_id, project_code) VALUES (?, ?)`, [msg.id, 'skip-self']);
+            continue;
+          }
 
           // Skip the original OP100 notification (not a reply)
           if (!subject.toLowerCase().startsWith('re:')) {
             await db.query(`INSERT OR IGNORE INTO budget_replies_processed (message_id, project_code) VALUES (?, ?)`, [msg.id, 'skip']);
+            continue;
+          }
+
+          // Skip system-generated budget replies (prevents feedback loop)
+          const msgBody = this._extractMessageBody(fullMsg.data.payload) || '';
+          if (msgBody.includes('System-generated email') || msgBody.includes('Budget Status for CMRP')) {
+            await db.query(`INSERT OR IGNORE INTO budget_replies_processed (message_id, project_code) VALUES (?, ?)`, [msg.id, 'skip-system']);
             continue;
           }
 
