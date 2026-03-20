@@ -1021,6 +1021,7 @@ class GoogleTasksService {
 
           // Skip messages sent BY the system itself (prevents feedback loop)
           if (adminUser.google_email && from.toLowerCase().includes(adminUser.google_email.toLowerCase())) {
+            console.log(`[BUDGET-STATUS] Skipping self-sent message ${msg.id} from ${from}`);
             await db.query(`INSERT OR IGNORE INTO budget_replies_processed (message_id, project_code) VALUES (?, ?)`, [msg.id, 'skip-self']);
             continue;
           }
@@ -1034,6 +1035,7 @@ class GoogleTasksService {
           // Skip system-generated budget replies (prevents feedback loop)
           const msgBody = this._extractMessageBody(fullMsg.data.payload) || '';
           if (msgBody.includes('System-generated email') || msgBody.includes('Budget Status for CMRP')) {
+            console.log(`[BUDGET-STATUS] Skipping system-generated message ${msg.id}`);
             await db.query(`INSERT OR IGNORE INTO budget_replies_processed (message_id, project_code) VALUES (?, ?)`, [msg.id, 'skip-system']);
             continue;
           }
@@ -1071,22 +1073,28 @@ class GoogleTasksService {
   }
 
   /**
-   * Extract plain text body from Gmail message payload.
+   * Extract body from Gmail message payload (text/plain or text/html).
    */
   _extractMessageBody(payload) {
     if (payload.body && payload.body.data) {
       return Buffer.from(payload.body.data, 'base64').toString('utf-8');
     }
     if (payload.parts) {
+      // Prefer text/plain, fall back to text/html
+      let htmlFallback = null;
       for (const part of payload.parts) {
         if (part.mimeType === 'text/plain' && part.body && part.body.data) {
           return Buffer.from(part.body.data, 'base64').toString('utf-8');
+        }
+        if (part.mimeType === 'text/html' && part.body && part.body.data) {
+          htmlFallback = Buffer.from(part.body.data, 'base64').toString('utf-8');
         }
         if (part.parts) {
           const nested = this._extractMessageBody(part);
           if (nested) return nested;
         }
       }
+      if (htmlFallback) return htmlFallback;
     }
     return null;
   }
