@@ -816,7 +816,7 @@ class GoogleTasksService {
    * Send budget status email for a specific project.
    * Replies in the existing OP100 thread if one exists.
    */
-  async sendBudgetStatusEmail(projectCode) {
+  async sendBudgetStatusEmail(projectCode, overrideThreadId) {
     try {
       // Get project info from DB
       const oppRow = await db.query(
@@ -904,8 +904,9 @@ class GoogleTasksService {
         `MIME-Version: 1.0`,
         `Content-Type: text/html; charset="UTF-8"`,
       ];
-      // Thread in existing OP100 thread if available
-      if (opp.op100_thread_id) {
+      // Use override threadId (from the actual reply) or fall back to DB stored threadId
+      const threadId = overrideThreadId || opp.op100_thread_id;
+      if (threadId) {
         rawLines.push(`References: <op100-${projectCode}@cmrp-oppx>`);
         rawLines.push(`In-Reply-To: <op100-${projectCode}@cmrp-oppx>`);
       }
@@ -929,7 +930,7 @@ class GoogleTasksService {
 
       const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
       const sendRequest = { userId: 'me', requestBody: { raw: encodedMessage } };
-      if (opp.op100_thread_id) sendRequest.requestBody.threadId = opp.op100_thread_id;
+      if (threadId) sendRequest.requestBody.threadId = threadId;
 
       await gmail.users.messages.send(sendRequest);
 
@@ -1050,9 +1051,10 @@ class GoogleTasksService {
           await db.query(`INSERT OR IGNORE INTO budget_replies_processed (message_id, project_code) VALUES (?, ?)`, [msg.id, projectCode]);
           await this._markAsRead(gmail, msg.id);
 
-          // Send budget status for this one project only
-          console.log(`[BUDGET-STATUS] Reply detected for ${projectCode}, sending budget status`);
-          const result = await this.sendBudgetStatusEmail(projectCode);
+          // Send budget status reply in the SAME thread the user replied to
+          const replyThreadId = fullMsg.data.threadId;
+          console.log(`[BUDGET-STATUS] Reply detected for ${projectCode} in thread ${replyThreadId}, sending budget status`);
+          const result = await this.sendBudgetStatusEmail(projectCode, replyThreadId);
           if (result.success) processed++;
 
         } catch (msgErr) {
