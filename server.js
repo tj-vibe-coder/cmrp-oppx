@@ -1073,9 +1073,9 @@ if (process.env.NODE_ENV === 'production' || process.env.ENABLE_WEEKLY_DIGEST ==
     console.log('[SERVER] Weekly digest disabled (development mode). Set ENABLE_WEEKLY_DIGEST=true to enable.');
 }
 
-// OP100 budget status reply poller: check every 5 minutes for recent "budget status" replies
+// OP100 budget status reply poller: check every 1 minute for recent "budget status" replies
 if (process.env.NODE_ENV === 'production' || process.env.ENABLE_BUDGET_POLLER === 'true') {
-    cron.schedule('*/5 * * * *', async () => {
+    cron.schedule('* * * * *', async () => {
         try {
             const result = await googleTasksService.checkOP100BudgetRequests();
             if (result.processed > 0) {

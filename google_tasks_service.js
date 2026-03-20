@@ -984,11 +984,11 @@ class GoogleTasksService {
 
       const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
 
-      // Search for replies in OP100 threads containing budget keywords (last 10 minutes)
-      const tenMinAgo = Math.floor(Date.now() / 1000) - 600;
+      // Search for replies in OP100 threads containing budget keywords (last 2 minutes)
+      const twoMinAgo = Math.floor(Date.now() / 1000) - 120;
       const searchRes = await gmail.users.messages.list({
         userId: 'me',
-        q: `subject:"[CMRP OppX] Project Awarded" "budget status" after:${tenMinAgo}`,
+        q: `subject:"[CMRP OppX] Project Awarded" "budget status" after:${twoMinAgo}`,
         maxResults: 5
       });
 
